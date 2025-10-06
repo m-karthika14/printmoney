@@ -39,12 +39,19 @@ const OnboardingWizard: React.FC = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   // Removed unused: const [paymentProcessed, setPaymentProcessed] = useState(false);
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+  // Store both shopId (public) and _id (MongoDB) for backend updates
   const [shopId, setShopId] = useState<string | null>(null);
+  const [mongoId, setMongoId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const [shopLoading, setShopLoading] = useState(false);
+  const [shopError, setShopError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   
   // Step 2: Agent Installation
   const [agentInstalled, setAgentInstalled] = useState(false);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentSuccess, setAgentSuccess] = useState(false);
   
   // Step 3: Printer Detection
   const [detectedPrinters] = useState([
@@ -119,20 +126,32 @@ const OnboardingWizard: React.FC = () => {
     { id: 6, title: 'Review & Complete', icon: FileText }
   ];
 
-  const generateCredentials = () => {
-    const shopId = 'SHP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-    const apiKey = 'sk_' + Math.random().toString(36).substr(2, 32);
-    setShopId(shopId);
-    setApiKey(apiKey);
-  };
+  // Remove generateCredentials, will fetch from backend
 
   const processPayment = async () => {
     if (!selectedPlan || !selectedPaymentMethod) return;
-    
-    // Simulate payment processing
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    generateCredentials();
-    setShowCredentialsModal(true);
+    setShopLoading(true);
+    setShopError(null);
+    try {
+      // Simulate payment processing
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Fetch shopId and apiKey from backend using email stored in localStorage
+      const email = localStorage.getItem('registeredShopEmail');
+      if (!email) throw new Error('No registered shop email found.');
+      const res = await fetch(`/api/shops`);
+      if (!res.ok) throw new Error('Failed to fetch shop data');
+      const shops = await res.json();
+  const shop = shops.find((s: any) => s.email === email);
+  if (!shop) throw new Error('Shop not found');
+  setShopId(shop.shopId);
+  setApiKey(shop.apiKey);
+  setMongoId(shop._id); // Store MongoDB _id for backend PATCH
+  setShowCredentialsModal(true);
+    } catch (err: any) {
+      setShopError(err.message || 'Failed to fetch shop credentials');
+    } finally {
+      setShopLoading(false);
+    }
   };
 
   const closeCredentialsModal = () => {
@@ -399,6 +418,12 @@ const OnboardingWizard: React.FC = () => {
             </div>
             
             <div className="space-y-4">
+              {shopLoading && (
+                <div className="text-center text-blue-500 font-semibold">Loading credentials...</div>
+              )}
+              {shopError && (
+                <div className="text-center text-red-500 font-semibold">{shopError}</div>
+              )}
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Shop ID</label>
                 <div className="flex items-center justify-between bg-white p-3 rounded border">
@@ -450,6 +475,47 @@ const OnboardingWizard: React.FC = () => {
     </div>
   );
 
+  const handleAgentInstall = async () => {
+    setAgentLoading(true);
+    setAgentError(null);
+    setAgentSuccess(false);
+    try {
+      // Fetch shopId if not already set
+      // Always use mongoId for PATCH
+      let id = mongoId;
+      if (!id) {
+        // Fallback: fetch by email if not in state
+        const email = localStorage.getItem('registeredShopEmail');
+        if (!email) throw new Error('No registered shop email found.');
+        const res = await fetch(`/api/shops`);
+        if (!res.ok) throw new Error('Failed to fetch shop data');
+        const shops = await res.json();
+        const shop = shops.find((s: any) => s.email === email);
+        if (!shop) throw new Error('Shop not found');
+        id = shop._id;
+        setMongoId(shop._id);
+        setShopId(shop.shopId);
+      }
+      // PATCH agent status using MongoDB _id
+      const res = await fetch(`/api/shops/${id}/agent`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'installed', installedAt: new Date() })
+      });
+      if (!res.ok) throw new Error('Failed to update agent status');
+      setAgentInstalled(true);
+      setAgentSuccess(true);
+      setTimeout(() => {
+        setAgentSuccess(false);
+        nextStep();
+      }, 1200);
+    } catch (err: any) {
+      setAgentError(err.message || 'Agent installation failed. Please try again.');
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
   const renderStep2 = () => (
     <div className="space-y-10">
       <div className="text-center">
@@ -463,7 +529,6 @@ const OnboardingWizard: React.FC = () => {
             <Download className="w-8 h-8 text-blue-500 mr-4" />
             <h3 className="text-2xl font-bold text-gray-900">Agent Installation Instructions</h3>
           </div>
-          
           <div className="space-y-6">
             <div className="flex items-start space-x-4">
               <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">1</div>
@@ -475,7 +540,6 @@ const OnboardingWizard: React.FC = () => {
                 </button>
               </div>
             </div>
-            
             <div className="flex items-start space-x-4">
               <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">2</div>
               <div className="flex-1">
@@ -486,7 +550,6 @@ const OnboardingWizard: React.FC = () => {
                 </div>
               </div>
             </div>
-            
             <div className="flex items-start space-x-4">
               <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">3</div>
               <div className="flex-1">
@@ -499,15 +562,27 @@ const OnboardingWizard: React.FC = () => {
           {!agentInstalled && (
             <div className="mt-10 text-center">
               <button 
-                onClick={() => setAgentInstalled(true)}
-                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105"
+                onClick={handleAgentInstall}
+                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
+                disabled={agentLoading}
               >
-                Confirm Installation Complete
+                {agentLoading && (
+                  <svg className="animate-spin h-5 w-5 text-white mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+                )}
+                {agentLoading ? 'Installing…' : 'Install Agent'}
               </button>
+              {agentError && <div className="mt-4 text-red-500 font-semibold">{agentError}</div>}
             </div>
           )}
 
-          {agentInstalled && (
+          {agentSuccess && (
+            <div className="mt-10 bg-green-50 border-2 border-green-200 rounded-xl p-6 text-center animate-fadeIn">
+              <Check className="w-8 h-8 text-green-500 mx-auto mb-3" />
+              <p className="text-green-800 font-bold text-lg">Agent installed successfully 🎉</p>
+            </div>
+          )}
+
+          {agentInstalled && !agentSuccess && (
             <div className="mt-10 bg-green-50 border-2 border-green-200 rounded-xl p-6 text-center">
               <Check className="w-8 h-8 text-green-500 mx-auto mb-3" />
               <p className="text-green-800 font-bold text-lg">Agent installed successfully!</p>

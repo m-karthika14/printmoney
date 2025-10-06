@@ -16,14 +16,14 @@ const PrinterSchema = new mongoose.Schema({
   agentDetected: {
     name: { type: String },
     status: { type: String }, // Ready / Busy / Error
-    capabilities: [CapabilitySchema]   // Capabilities stored here
+    capabilities: [CapabilitySchema]
   },
 
   // Editable by shopkeeper (optional overrides)
   manualOverride: {
     name: { type: String },
     notes: { type: String },
-    capabilities: [CapabilitySchema]   // Capabilities stored here
+    capabilities: [CapabilitySchema]
   },
 
   // Whether to show real agent values or manual overrides
@@ -31,26 +31,26 @@ const PrinterSchema = new mongoose.Schema({
 });
 
 // ✅ Virtual property to get active printer config
-PrinterSchema.virtual('activeConfig').get(function() {
-  const agentData = this.agentDetected.toObject();
-  
-  if (this.manualOverride && Object.keys(this.manualOverride.toObject()).length > 0) {
+PrinterSchema.virtual('activeConfig').get(function () {
+  const agentData = this.agentDetected?.toObject?.() || {};
+
+  if (this.manualOverride && Object.keys(this.manualOverride.toObject?.() || {}).length > 0) {
     const manualData = this.manualOverride.toObject();
-    
+
     if (this.useAgentValues) {
       return agentData;
     }
-    
+
     return {
       name: manualData.name || agentData.name,
       status: agentData.status,
-      capabilities: manualData.capabilities && manualData.capabilities.length > 0 
-        ? manualData.capabilities 
+      capabilities: manualData.capabilities?.length > 0
+        ? manualData.capabilities
         : agentData.capabilities,
       notes: manualData.notes
     };
   }
-  
+
   return agentData;
 });
 
@@ -60,7 +60,13 @@ const ServiceSchema = new mongoose.Schema({
   name: String,
   selected: Boolean,
   isCustom: Boolean
-});
+}, { _id: false });
+
+// Agent schema (only status + installedAt, no Agent ID)
+const AgentSchema = new mongoose.Schema({
+  status: { type: String, enum: ["pending", "installed", "error"], default: "pending" },
+  installedAt: { type: Date }
+}, { _id: false });
 
 // Main shop schema
 const NewShopSchema = new mongoose.Schema({
@@ -92,36 +98,32 @@ const NewShopSchema = new mongoose.Schema({
   },
 
   payment: {
-  method: { 
-    type: String, 
-    enum: ["UPI", "Card", "NetBanking"], 
-    required: true 
-  },
-  status: { 
-    type: String, 
-    enum: ["pending", "success", "failed", "refunded"], 
-    default: "pending" 
-  },
-  transactionId: { type: String }, // Gateway payment_id
-  orderId: { type: String },       // Gateway order_id
-  gatewayResponse: { type: Object }, // Store safe metadata (from Razorpay/Stripe/Paytm)
+    method: {
+      type: String,
+      enum: ["UPI", "Card", "NetBanking"],
+      required: false
+    },
+    status: {
+      type: String,
+      enum: ["pending", "success", "failed", "refunded"],
+      default: "pending"
+    },
+    transactionId: { type: String },
+    orderId: { type: String },
+    gatewayResponse: { type: Object },
 
-  // Optional safe identifiers
-  details: {
-    upiId: { type: String },             // e.g. "user@upi" (non-sensitive)
-    cardLast4: { type: String },         // e.g. "****1234"
-    cardType: { type: String },          // e.g. "VISA / Mastercard"
-    bank: { type: String }               // e.g. "HDFC Bank"
+    details: {
+      upiId: { type: String },
+      cardLast4: { type: String },
+      cardType: { type: String },
+      bank: { type: String }
+    },
+
+    completed: { type: Boolean, default: false }
   },
 
-  completed: { type: Boolean, default: false }
-},
-
-
-  agent: {
-    status: String,
-    installedAt: Date
-  },
+  // ✅ Updated agent section
+  agent: AgentSchema,
 
   printers: [PrinterSchema],
 

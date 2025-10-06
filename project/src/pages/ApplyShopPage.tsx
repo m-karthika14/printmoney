@@ -30,6 +30,8 @@ const ApplyShopPage: React.FC = () => {
         const data = await res.json();
         throw new Error(data.message || 'Registration failed');
       }
+      // Store email in localStorage for onboarding fetch
+      localStorage.setItem('registeredShopEmail', form.email);
       navigate('/partner/onboarding');
     } catch (err: any) {
       setError(err.message);

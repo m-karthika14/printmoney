@@ -1,8 +1,42 @@
+
 const express = require('express');
 const router = express.Router();
 const NewShop = require('../models/NewShop');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+
+// PATCH update agent status and installedAt (onboarding agent install)
+router.patch('/:id/agent', async (req, res) => {
+	try {
+		const shop = await NewShop.findByIdAndUpdate(
+			req.params.id,
+			{ agent: { status: req.body.status, installedAt: req.body.installedAt } },
+			{ new: true, runValidators: true }
+		);
+		if (!shop) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		res.json(shop);
+	} catch (error) {
+		res.status(400).json({ message: error.message });
+	}
+});
+// PATCH update only the plan for a shop (onboarding)
+router.patch('/:id/plan', async (req, res) => {
+	try {
+		const shop = await NewShop.findByIdAndUpdate(
+			req.params.id,
+			{ plan: req.body.plan },
+			{ new: true, runValidators: true }
+		);
+		if (!shop) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		res.json(shop);
+	} catch (error) {
+		res.status(400).json({ message: error.message });
+	}
+});
 
 // GET all newshops
 router.get('/', async (req, res) => {
