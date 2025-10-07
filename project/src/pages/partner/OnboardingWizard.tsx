@@ -11,10 +11,17 @@ interface PricingPlan {
   recommended?: boolean;
 }
 
+interface PrinterCapability {
+  type: string;
+  duplex: boolean;
+  paperSizes: string[];
+}
+
 interface PrinterOverride {
   name?: string;
   model?: string;
-  capabilities?: string[];
+  capabilities?: PrinterCapability[];
+  notes?: string;
 }
 
 interface Service {
@@ -159,7 +166,113 @@ const OnboardingWizard: React.FC = () => {
     nextStep();
   };
 
-  const nextStep = () => {
+  // PATCH plan to backend
+  const patchPlan = async () => {
+    if (!mongoId || !selectedPlan) return;
+    const planObj = pricingPlans.find(p => p.id === selectedPlan);
+    if (!planObj) return;
+    await fetch(`/api/shops/${mongoId}/plan`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan: {
+          id: planObj.id,
+          name: planObj.name,
+          price: planObj.price,
+          features: planObj.features
+        }
+      })
+    });
+  };
+
+  // PATCH payment to backend
+  const patchPayment = async (upiIdValue?: string) => {
+    if (!mongoId || !selectedPaymentMethod) return;
+    await fetch(`/api/shops/${mongoId}/payment`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: selectedPaymentMethod,
+        details: { upiId: upiIdValue || '' },
+        status: 'pending',
+        completed: false
+      })
+    });
+  };
+
+  // ...existing code...
+
+  // PATCH services to backend
+  const patchServices = async () => {
+    if (!mongoId) return;
+    const allServices = [
+      ...services.filter(s => s.selected),
+      ...customServices.map(s => ({ ...s, selected: true, isCustom: true }))
+    ];
+    await fetch(`/api/shops/${mongoId}/services`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ services: allServices })
+    });
+  };
+
+  // Call PATCH after each step
+  // PATCH printers to backend with correct schema after agent install
+  const patchPrinters = async () => {
+    if (!mongoId) {
+      console.log('patchPrinters: mongoId is missing');
+      return;
+    }
+    // Map detectedPrinters to correct schema
+    const printers = detectedPrinters.map(printer => ({
+      printerId: printer.id,
+      agentDetected: {
+        name: printer.name,
+        status: "Ready", // You can update this if you have real status
+        capabilities: [
+          {
+            type: printer.capabilities.includes("Color") ? "Color" : "B/W",
+            duplex: printer.capabilities.includes("Duplex"),
+            paperSizes: ["A4", "Letter"]
+          }
+        ]
+      },
+      manualOverride: printerOverrides[printer.id] || {
+        name: "",
+        notes: "",
+        capabilities: []
+      },
+      useAgentValues: true
+    }));
+    console.log('patchPrinters: sending printers array:', printers);
+    try {
+      const response = await fetch(`http://localhost:5000/api/shops/${mongoId}/printers`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ printers })
+      });
+      const result = await response.json();
+      console.log('patchPrinters: backend response:', result);
+    } catch (err) {
+      console.error('patchPrinters: error sending printers:', err);
+    }
+  };
+
+  const nextStep = async () => {
+    if (currentStep === 1) {
+      await patchPlan();
+      await patchPayment();
+    }
+    if (currentStep === 2) {
+      // After agent install, PATCH printers with correct schema
+      await patchPrinters();
+    }
+    if (currentStep === 3) {
+      await patchPrinters();
+    }
+    if (currentStep === 5) {
+      await patchServices();
+    }
     if (currentStep < 6) {
       setCompletedSteps(prev => [...prev, currentStep]);
       setCurrentStep(prev => prev + 1);
@@ -167,21 +280,37 @@ const OnboardingWizard: React.FC = () => {
   };
 
   const completeOnboarding = async () => {
-    // Simulate saving to database
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // Redirect to login page
-    window.location.href = '/login';
+  // Simulate saving to database
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  // Redirect to partner login page
+  window.location.href = '/partner-login';
   };
 
-  const updatePrinterOverride = (printerId: string, field: string, value: string | string[]) => {
-    setPrinterOverrides(prev => ({
-      ...prev,
-      [printerId]: {
-        ...prev[printerId],
-        [field]: value
+  const updatePrinterOverride = (printerId: string, field: string, value: any) => {
+    setPrinterOverrides(prev => {
+      let newValue = value;
+      if (field === 'capabilities') {
+        // If value is an array of strings, convert to array of objects
+        if (Array.isArray(value) && value.length && typeof value[0] === 'string') {
+          newValue = [{
+            type: value[0] || "B/W",
+            duplex: false,
+            paperSizes: ["A4", "Letter"]
+          }];
+        }
+        // If value is not an array of objects, default to one object
+        if (!Array.isArray(newValue) || typeof newValue[0] !== 'object') {
+          newValue = [{ type: "B/W", duplex: false, paperSizes: ["A4", "Letter"] }];
+        }
       }
-    }));
+      return {
+        ...prev,
+        [printerId]: {
+          ...prev[printerId],
+          [field]: newValue
+        }
+      };
+    });
   };
 
   const toggleService = (serviceId: string) => {
@@ -675,22 +804,74 @@ const OnboardingWizard: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-blue-800 mb-2">Capabilities</label>
+                    <label className="block text-sm font-semibold text-blue-800 mb-2">Capability Type</label>
+                    <select
+                      value={(() => {
+                        const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                        return (cap && typeof cap === 'object' && 'type' in cap) ? cap.type : (printer.capabilities.includes("Color") ? "Color" : "B/W");
+                      })()}
+                      onChange={e => updatePrinterOverride(printer.id, 'capabilities', [{
+                        type: e.target.value,
+                        duplex: (() => {
+                          const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                          return (cap && typeof cap === 'object' && 'duplex' in cap) ? cap.duplex : printer.capabilities.includes("Duplex");
+                        })(),
+                        paperSizes: (() => {
+                          const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                          return (cap && typeof cap === 'object' && 'paperSizes' in cap) ? cap.paperSizes : ["A4", "Letter"];
+                        })()
+                      }])}
+                      disabled={editingPrinter !== printer.id}
+                      className={`w-full px-4 py-2 border-2 rounded-lg transition-all duration-300 ${editingPrinter === printer.id ? 'border-blue-300 focus:border-blue-500 bg-white' : 'border-gray-200 bg-gray-100 cursor-not-allowed'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    >
+                      <option value="B/W">B/W</option>
+                      <option value="Color">Color</option>
+                      <option value="Color+B/W">Color+B/W</option>
+                    </select>
+                    <label className="block text-sm font-semibold text-blue-800 mb-2 mt-2">Duplex</label>
+                    <input
+                      type="checkbox"
+                      checked={(() => {
+                        const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                        return (cap && typeof cap === 'object' && 'duplex' in cap) ? cap.duplex : printer.capabilities.includes("Duplex");
+                      })()}
+                      onChange={e => updatePrinterOverride(printer.id, 'capabilities', [{
+                        type: (() => {
+                          const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                          return (cap && typeof cap === 'object' && 'type' in cap) ? cap.type : (printer.capabilities.includes("Color") ? "Color" : "B/W");
+                        })(),
+                        duplex: e.target.checked,
+                        paperSizes: (() => {
+                          const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                          return (cap && typeof cap === 'object' && 'paperSizes' in cap) ? cap.paperSizes : ["A4", "Letter"];
+                        })()
+                      }])}
+                      disabled={editingPrinter !== printer.id}
+                      className="mr-2"
+                    />
+                    <span className="text-xs">Supports double-sided printing</span>
+                    <label className="block text-sm font-semibold text-blue-800 mb-2 mt-2">Paper Sizes</label>
                     <input
                       type="text"
-                      placeholder={`Default: ${printer.capabilities.join(', ')}`}
-                      value={printerOverrides[printer.id]?.capabilities?.join(', ') || ''}
-                      onChange={(e) => updatePrinterOverride(printer.id, 'capabilities', e.target.value.split(', '))}
+                      value={(() => {
+                        const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                        return (cap && typeof cap === 'object' && 'paperSizes' in cap) ? cap.paperSizes.join(", ") : ["A4", "Letter"].join(", ");
+                      })()}
+                      onChange={e => updatePrinterOverride(printer.id, 'capabilities', [{
+                        type: (() => {
+                          const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                          return (cap && typeof cap === 'object' && 'type' in cap) ? cap.type : (printer.capabilities.includes("Color") ? "Color" : "B/W");
+                        })(),
+                        duplex: (() => {
+                          const cap = printerOverrides[printer.id]?.capabilities?.[0];
+                          return (cap && typeof cap === 'object' && 'duplex' in cap) ? cap.duplex : printer.capabilities.includes("Duplex");
+                        })(),
+                        paperSizes: e.target.value.split(",").map(s => s.trim())
+                      }])}
                       disabled={editingPrinter !== printer.id}
-                      className={`w-full px-4 py-3 border-2 rounded-lg transition-all duration-300 ${
-                        editingPrinter === printer.id 
-                          ? 'border-blue-300 focus:border-blue-500 bg-white' 
-                          : 'border-gray-200 bg-gray-100 cursor-not-allowed'
-                      } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                      className={`w-full px-4 py-2 border-2 rounded-lg transition-all duration-300 ${editingPrinter === printer.id ? 'border-blue-300 focus:border-blue-500 bg-white' : 'border-gray-200 bg-gray-100 cursor-not-allowed'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                      placeholder="A4, Letter"
                     />
-                    <p className="text-xs text-blue-600 mt-1">
-                      {printerOverrides[printer.id]?.capabilities ? 'Using manual value' : 'Using agent-detected value'}
-                    </p>
                   </div>
                 </div>
               </div>
@@ -698,7 +879,6 @@ const OnboardingWizard: React.FC = () => {
               {/* Agent Detected Card */}
               <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6">
                 <h4 className="text-xl font-bold text-green-900 mb-6">Agent Detected Values</h4>
-                
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-green-800 mb-2">Printer Name</label>
@@ -707,7 +887,6 @@ const OnboardingWizard: React.FC = () => {
                     </div>
                     <p className="text-xs text-green-600 mt-1">Auto-detected by agent</p>
                   </div>
-
                   <div>
                     <label className="block text-sm font-semibold text-green-800 mb-2">Model</label>
                     <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
@@ -715,13 +894,23 @@ const OnboardingWizard: React.FC = () => {
                     </div>
                     <p className="text-xs text-green-600 mt-1">Auto-detected by agent</p>
                   </div>
-
                   <div>
-                    <label className="block text-sm font-semibold text-green-800 mb-2">Capabilities</label>
+                    <label className="block text-sm font-semibold text-green-800 mb-2">Capability Type</label>
                     <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
-                      {printer.capabilities.join(', ')}
+                      {printer.capabilities.includes("Color") ? "Color" : "B/W"}
                     </div>
-                    <p className="text-xs text-green-600 mt-1">Auto-detected by agent</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-green-800 mb-2">Duplex</label>
+                    <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
+                      {printer.capabilities.includes("Duplex") ? "Yes" : "No"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-green-800 mb-2">Paper Sizes</label>
+                    <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
+                      {"A4, Letter"}
+                    </div>
                   </div>
                 </div>
               </div>

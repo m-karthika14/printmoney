@@ -59,7 +59,8 @@ const ServiceSchema = new mongoose.Schema({
   id: String,
   name: String,
   selected: Boolean,
-  isCustom: Boolean
+  isCustom: Boolean,
+  price: String
 }, { _id: false });
 
 // Agent schema (only status + installedAt, no Agent ID)

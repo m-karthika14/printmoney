@@ -13,11 +13,32 @@ const PartnerLogin = () => {
     phone: '',
     otp: ''
   });
+  const [loginError, setLoginError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Simulate login
-    navigate('/dashboard');
+    setLoginError('');
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/shops/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email, password: formData.password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.message || 'Login failed');
+        setLoading(false);
+        return;
+      }
+      // Login successful, redirect to dashboard
+      navigate('/dashboard', { state: { shop: data.shop } });
+    } catch (err) {
+      setLoginError('Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -72,15 +93,6 @@ const PartnerLogin = () => {
           </div>
 
           <form className="space-y-6" onSubmit={handleLogin}>
-            {/* Demo Credentials */}
-            <div className="bg-lime-50 border border-lime-200 rounded-lg p-4 mb-6">
-              <h4 className="font-medium text-lime-800 mb-2">Demo Login Credentials:</h4>
-              <div className="text-sm text-lime-700 space-y-1">
-                <p><strong>Email:</strong> demo@rajdigitalcenter.com</p>
-                <p><strong>Password:</strong> printbeka123</p>
-              </div>
-            </div>
-
             {loginMethod === 'email' ? (
               <>
                 <div>
@@ -92,10 +104,10 @@ const PartnerLogin = () => {
                     <input
                       type="email"
                       required
-                      value={formData.email || 'demo@rajdigitalcenter.com'}
+                      value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-transparent"
-                      placeholder="demo@rajdigitalcenter.com"
+                      placeholder="Enter your email"
                     />
                   </div>
                 </div>
@@ -109,10 +121,10 @@ const PartnerLogin = () => {
                     <input
                       type={showPassword ? 'text' : 'password'}
                       required
-                      value={formData.password || 'printbeka123'}
+                      value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       className="w-full pl-10 pr-12 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-transparent"
-                      placeholder="printbeka123"
+                      placeholder="Enter your password"
                     />
                     <button
                       type="button"
@@ -178,11 +190,16 @@ const PartnerLogin = () => {
               </a>
             </div>
 
+            {loginError && (
+              <div className="text-red-400 text-sm font-semibold text-center mb-2">{loginError}</div>
+            )}
+
             <button
               type="submit"
               className="w-full bg-gradient-to-r from-lime-500 to-emerald-500 text-white py-3 px-4 rounded-lg font-semibold hover:from-lime-600 hover:to-emerald-600 transition-all duration-300 shadow-lg hover:shadow-xl"
+              disabled={loading}
             >
-              Sign In to Dashboard
+              {loading ? 'Signing In...' : 'Sign In to Dashboard'}
             </button>
           </form>
 
