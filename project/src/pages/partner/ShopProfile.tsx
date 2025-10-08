@@ -1,7 +1,43 @@
 import React, { useState } from 'react';
+
+// Type definitions
+type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+interface WorkingHour {
+  open: string;
+  close: string;
+}
+interface ShopProfileData {
+  _id?: string;
+  name?: string;
+  shopName?: string;
+  shopId: string;
+  description: string;
+  address: string;
+  phone: string;
+  email: string;
+  isOpen: boolean;
+  workingHours: Record<DayOfWeek, WorkingHour>;
+  services: string[];
+}
+
+const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const defaultWorkingHours: Record<DayOfWeek, WorkingHour> = days.reduce((acc, day) => {
+  acc[day] = { open: '', close: '' };
+  return acc;
+}, {} as Record<DayOfWeek, WorkingHour>);
+const defaultShopData: ShopProfileData = {
+  name: '',
+  shopId: '',
+  description: '',
+  address: '',
+  phone: '',
+  email: '',
+  isOpen: true,
+  workingHours: defaultWorkingHours,
+  services: []
+};
 import { motion } from 'framer-motion';
 import { 
-  User, 
   MapPin, 
   Phone, 
   Mail, 
@@ -9,56 +45,108 @@ import {
   QrCode, 
   Camera, 
   Save, 
-  Globe,
-  Languages,
   Power,
-  Star,
   Edit3
 } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
 
-const ShopProfile = () => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [shopData, setShopData] = useState({
-    name: 'Raj Digital Center',
-    description: 'Professional printing services with fast turnaround times. We specialize in high-quality documents, photos, and business materials.',
-    address: '123 MG Road, Bangalore, Karnataka 560001',
-    phone: '+91 98765 43210',
-    email: 'raj@digitalcenter.com',
-    website: 'www.rajdigitalcenter.com',
-    isOpen: true,
-    rating: 4.8,
-    totalReviews: 156,
-    languages: ['English', 'Hindi', 'Kannada'],
-    workingHours: {
-      monday: { open: '09:00', close: '21:00', closed: false },
-      tuesday: { open: '09:00', close: '21:00', closed: false },
-      wednesday: { open: '09:00', close: '21:00', closed: false },
-      thursday: { open: '09:00', close: '21:00', closed: false },
-      friday: { open: '09:00', close: '21:00', closed: false },
-      saturday: { open: '09:00', close: '20:00', closed: false },
-      sunday: { open: '10:00', close: '18:00', closed: false }
-    },
-    services: [
-      'Black & White Printing',
-      'Color Printing',
-      'Document Scanning',
-      'Spiral Binding',
-      'Lamination',
-      'Photo Printing'
-    ],
-    specialOffers: [
-      'First-time customer 10% off',
-      'Bulk printing discounts',
-      'Same-day binding service'
-    ]
-  });
+const ShopProfile: React.FC = () => {
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [shopData, setShopData] = useState<ShopProfileData>(defaultShopData);
+  React.useEffect(() => {
+    // Fetch shop profile from backend
+    async function fetchShop() {
+      try {
+        const id = localStorage.getItem('shopId');
+        console.log('shopId from localStorage:', id);
+        if (!id) return;
+        const res = await fetch(`http://localhost:5000/api/shops/${id}`);
+        if (!res.ok) {
+          console.log('Fetch failed, status:', res.status);
+          return;
+        }
+        const shop: ShopProfileData = await res.json();
+        console.log('Fetched shop:', shop);
+        // Ensure workingHours has all days
+        const workingHours: Record<DayOfWeek, WorkingHour> = { ...defaultWorkingHours, ...(shop.workingHours || {}) };
+        setShopData({ ...defaultShopData, ...shop, name: shop.name || shop.shopName, workingHours });
+      } catch (err) {
+        console.log('Error fetching shop:', err);
+      }
+    }
+    fetchShop();
+  }, []);
 
-  const [tempData, setTempData] = useState({ ...shopData });
+  React.useEffect(() => {
+    setTempData({ ...shopData });
+  }, [shopData]);
+
+  const [tempData, setTempData] = useState<ShopProfileData>({ ...shopData });
+
+  // Helper function to convert 24-hour time to 12-hour format with AM/PM
+  const formatTime12Hour = (time24: string) => {
+    if (!time24) return '';
+    const [hours, minutes] = time24.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+
+  // Helper function to convert 12-hour format to 24-hour
+  const formatTime24Hour = (hour12: string, minute: string, ampm: string) => {
+    const hour = parseInt(hour12);
+    const min = minute.padStart(2, '0');
+    if (ampm === 'AM') {
+      return hour === 12 ? `00:${min}` : `${hour.toString().padStart(2, '0')}:${min}`;
+    } else {
+      return hour === 12 ? `12:${min}` : `${(hour + 12).toString()}:${min}`;
+    }
+  };
+
+  // Helper function to parse 24-hour time into components
+  const parseTime24Hour = (time24: string) => {
+    if (!time24) return { hour: '9', minute: '00', ampm: 'AM' };
+    const [hours, minutes] = time24.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return { hour: hour12.toString(), minute: minutes, ampm };
+  };
 
   const handleSave = () => {
-    setShopData({ ...tempData });
-    setIsEditing(false);
+    // Save changes to backend
+    async function saveProfile() {
+      try {
+        // Use shopId from tempData/shopData
+        const id = tempData._id || shopData._id || tempData.shopId || shopData.shopId;
+        if (!id) return;
+        const res = await fetch(`http://localhost:5000/api/shops/${id}/profile`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: tempData.name,
+            shopId: tempData.shopId,
+            description: tempData.description,
+            address: tempData.address,
+            phone: tempData.phone,
+            email: tempData.email,
+            isOpen: tempData.isOpen,
+            workingHours: tempData.workingHours
+          })
+        });
+        if (res.ok) {
+          const updated: ShopProfileData = await res.json();
+          setShopData({ ...tempData, ...updated });
+        } else {
+          // handle error
+        }
+      } catch (err) {
+        // handle error
+      }
+      setIsEditing(false);
+    }
+    saveProfile();
   };
 
   const handleCancel = () => {
@@ -72,7 +160,7 @@ const ShopProfile = () => {
     setTempData({ ...tempData, isOpen: newStatus });
   };
 
-  const updateWorkingHours = (day, field, value) => {
+  const updateWorkingHours = (day: DayOfWeek, field: keyof WorkingHour, value: string) => {
     setTempData({
       ...tempData,
       workingHours: {
@@ -85,7 +173,7 @@ const ShopProfile = () => {
     });
   };
 
-  const addService = (service) => {
+  const addService = (service: string) => {
     if (service && !tempData.services.includes(service)) {
       setTempData({
         ...tempData,
@@ -94,14 +182,12 @@ const ShopProfile = () => {
     }
   };
 
-  const removeService = (index) => {
+  const removeService = (index: number) => {
     setTempData({
       ...tempData,
       services: tempData.services.filter((_, i) => i !== index)
     });
   };
-
-  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
   return (
     <PartnerLayout>
@@ -117,43 +203,46 @@ const ShopProfile = () => {
             <h1 className="text-3xl font-bold text-gray-900">Shop Profile</h1>
             <p className="text-gray-600 mt-2">Manage your shop information and settings</p>
           </div>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={toggleShopStatus}
-              className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
-                shopData.isOpen
-                  ? 'bg-green-500 text-white hover:bg-green-600'
-                  : 'bg-red-500 text-white hover:bg-red-600'
-              }`}
-            >
-              <Power className="h-5 w-5" />
-              <span>{shopData.isOpen ? 'Shop Open' : 'Shop Closed'}</span>
-            </button>
-            {isEditing ? (
-              <div className="flex space-x-2">
-                <button
-                  onClick={handleCancel}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-colors duration-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="flex items-center space-x-2 bg-lime-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-lime-600 transition-colors duration-200"
-                >
-                  <Save className="h-5 w-5" />
-                  <span>Save Changes</span>
-                </button>
-              </div>
-            ) : (
+          <div className="flex flex-col items-end">
+            {/* Shop name and ID removed - now shown in PartnerLayout navbar */}
+            <div className="flex items-center space-x-3 mt-4">
               <button
-                onClick={() => setIsEditing(true)}
-                className="flex items-center space-x-2 border border-lime-500 text-lime-600 px-6 py-3 rounded-xl font-semibold hover:bg-lime-50 transition-colors duration-200"
+                onClick={toggleShopStatus}
+                className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
+                  shopData.isOpen
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-red-500 text-white hover:bg-red-600'
+                }`}
               >
-                <Edit3 className="h-5 w-5" />
-                <span>Edit Profile</span>
+                <Power className="h-5 w-5" />
+                <span>{shopData.isOpen ? 'Shop Open' : 'Shop Closed'}</span>
               </button>
-            )}
+              {isEditing ? (
+                <div className="flex space-x-2">
+                  <button
+                    onClick={handleCancel}
+                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-colors duration-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="flex items-center space-x-2 bg-lime-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-lime-600 transition-colors duration-200"
+                  >
+                    <Save className="h-5 w-5" />
+                    <span>Save Changes</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center space-x-2 border border-lime-500 text-lime-600 px-6 py-3 rounded-xl font-semibold hover:bg-lime-50 transition-colors duration-200"
+                >
+                  <Edit3 className="h-5 w-5" />
+                  <span>Edit Profile</span>
+                </button>
+              )}
+            </div>
           </div>
         </motion.div>
 
@@ -190,11 +279,6 @@ const ShopProfile = () => {
                     <h2 className="text-2xl font-bold text-gray-900">{shopData.name}</h2>
                   )}
                   <div className="flex items-center space-x-4 mt-2">
-                    <div className="flex items-center space-x-1">
-                      <Star className="h-5 w-5 text-yellow-400 fill-current" />
-                      <span className="font-semibold text-gray-900">{shopData.rating}</span>
-                      <span className="text-gray-600">({shopData.totalReviews} reviews)</span>
-                    </div>
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                       shopData.isOpen 
                         ? 'bg-green-100 text-green-800' 
@@ -274,23 +358,6 @@ const ShopProfile = () => {
                       <p className="text-gray-700">{shopData.email}</p>
                     )}
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      <Globe className="h-4 w-4 inline mr-1" />
-                      Website
-                    </label>
-                    {isEditing ? (
-                      <input
-                        type="url"
-                        value={tempData.website}
-                        onChange={(e) => setTempData({ ...tempData, website: e.target.value })}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
-                      />
-                    ) : (
-                      <p className="text-gray-700">{shopData.website}</p>
-                    )}
-                  </div>
                 </div>
               </div>
             </motion.div>
@@ -308,52 +375,137 @@ const ShopProfile = () => {
               </div>
 
               <div className="space-y-3">
-                {days.map((day) => (
-                  <div key={day} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <span className="font-medium text-gray-900 capitalize w-20">{day}</span>
-                      {isEditing && (
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={tempData.workingHours[day].closed}
-                            onChange={(e) => updateWorkingHours(day, 'closed', e.target.checked)}
-                            className="rounded text-lime-500 focus:ring-lime-500"
-                          />
-                          <span className="ml-2 text-sm text-gray-600">Closed</span>
-                        </label>
-                      )}
-                    </div>
-                    
-                    {(isEditing ? tempData : shopData).workingHours[day].closed ? (
-                      <span className="text-red-600 font-medium">Closed</span>
-                    ) : (
-                      <div className="flex items-center space-x-2">
-                        {isEditing ? (
-                          <>
+                {days.map((day) => {
+                  const wh = (isEditing ? tempData : shopData).workingHours[day as DayOfWeek] || { open: '', close: '' };
+                  const isClosed = !wh.open && !wh.close;
+                  return (
+                    <div key={day} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <span className="font-medium text-gray-900 capitalize w-20">{day}</span>
+                        {isEditing && (
+                          <label className="flex items-center">
                             <input
-                              type="time"
-                              value={tempData.workingHours[day].open}
-                              onChange={(e) => updateWorkingHours(day, 'open', e.target.value)}
-                              className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
+                              type="checkbox"
+                              checked={isClosed}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                if (e.target.checked) {
+                                  // Mark as closed - set empty times
+                                  updateWorkingHours(day as DayOfWeek, 'open', '');
+                                  updateWorkingHours(day as DayOfWeek, 'close', '');
+                                } else {
+                                  // Mark as open - set default times if empty
+                                  const currentOpen = wh.open || '09:00';
+                                  const currentClose = wh.close || '17:00';
+                                  updateWorkingHours(day as DayOfWeek, 'open', currentOpen);
+                                  updateWorkingHours(day as DayOfWeek, 'close', currentClose);
+                                }
+                              }}
+                              className="rounded text-lime-500 focus:ring-lime-500"
                             />
-                            <span>to</span>
-                            <input
-                              type="time"
-                              value={tempData.workingHours[day].close}
-                              onChange={(e) => updateWorkingHours(day, 'close', e.target.value)}
-                              className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
-                            />
-                          </>
-                        ) : (
-                          <span className="text-gray-700">
-                            {shopData.workingHours[day].open} - {shopData.workingHours[day].close}
-                          </span>
+                            <span className="ml-2 text-sm text-gray-600">Closed</span>
+                          </label>
                         )}
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {isClosed ? (
+                        <span className="text-red-600 font-medium">Closed</span>
+                      ) : (
+                        <div className="flex items-center space-x-2">
+                          {isEditing ? (
+                            <>
+                              <div className="flex items-center space-x-1">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="12"
+                                  value={parseTime24Hour(wh.open).hour}
+                                  onChange={(e) => {
+                                    const parsed = parseTime24Hour(wh.open);
+                                    const newTime = formatTime24Hour(e.target.value, parsed.minute, parsed.ampm);
+                                    updateWorkingHours(day as DayOfWeek, 'open', newTime);
+                                  }}
+                                  className="w-12 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-center"
+                                  placeholder="9"
+                                />
+                                <span>:</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="59"
+                                  value={parseTime24Hour(wh.open).minute}
+                                  onChange={(e) => {
+                                    const parsed = parseTime24Hour(wh.open);
+                                    const newTime = formatTime24Hour(parsed.hour, e.target.value.padStart(2, '0'), parsed.ampm);
+                                    updateWorkingHours(day as DayOfWeek, 'open', newTime);
+                                  }}
+                                  className="w-12 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-center"
+                                  placeholder="00"
+                                />
+                                <select
+                                  value={parseTime24Hour(wh.open).ampm}
+                                  onChange={(e) => {
+                                    const parsed = parseTime24Hour(wh.open);
+                                    const newTime = formatTime24Hour(parsed.hour, parsed.minute, e.target.value);
+                                    updateWorkingHours(day as DayOfWeek, 'open', newTime);
+                                  }}
+                                  className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
+                                >
+                                  <option value="AM">AM</option>
+                                  <option value="PM">PM</option>
+                                </select>
+                              </div>
+                              <span>to</span>
+                              <div className="flex items-center space-x-1">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="12"
+                                  value={parseTime24Hour(wh.close).hour}
+                                  onChange={(e) => {
+                                    const parsed = parseTime24Hour(wh.close);
+                                    const newTime = formatTime24Hour(e.target.value, parsed.minute, parsed.ampm);
+                                    updateWorkingHours(day as DayOfWeek, 'close', newTime);
+                                  }}
+                                  className="w-12 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-center"
+                                  placeholder="5"
+                                />
+                                <span>:</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="59"
+                                  value={parseTime24Hour(wh.close).minute}
+                                  onChange={(e) => {
+                                    const parsed = parseTime24Hour(wh.close);
+                                    const newTime = formatTime24Hour(parsed.hour, e.target.value.padStart(2, '0'), parsed.ampm);
+                                    updateWorkingHours(day as DayOfWeek, 'close', newTime);
+                                  }}
+                                  className="w-12 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-center"
+                                  placeholder="00"
+                                />
+                                <select
+                                  value={parseTime24Hour(wh.close).ampm}
+                                  onChange={(e) => {
+                                    const parsed = parseTime24Hour(wh.close);
+                                    const newTime = formatTime24Hour(parsed.hour, parsed.minute, e.target.value);
+                                    updateWorkingHours(day as DayOfWeek, 'close', newTime);
+                                  }}
+                                  className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
+                                >
+                                  <option value="AM">AM</option>
+                                  <option value="PM">PM</option>
+                                </select>
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-gray-700">
+                              {formatTime12Hour(wh.open)} - {formatTime12Hour(wh.close)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </motion.div>
 
@@ -391,10 +543,11 @@ const ShopProfile = () => {
                     type="text"
                     placeholder="Add new service"
                     className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
-                    onKeyPress={(e) => {
+                    onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                      const target = e.target as HTMLInputElement;
                       if (e.key === 'Enter') {
-                        addService(e.target.value);
-                        e.target.value = '';
+                        addService(target.value);
+                        target.value = '';
                       }
                     }}
                   />
@@ -428,46 +581,6 @@ const ShopProfile = () => {
               <button className="w-full bg-lime-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-lime-600 transition-colors duration-200">
                 Download QR Code
               </button>
-            </motion.div>
-
-            {/* Languages */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.6, delay: 0.5 }}
-              className="bg-white rounded-2xl shadow-lg p-6"
-            >
-              <div className="flex items-center space-x-2 mb-4">
-                <Languages className="h-6 w-6 text-lime-500" />
-                <h3 className="text-lg font-semibold text-gray-900">Languages</h3>
-              </div>
-              
-              <div className="space-y-2">
-                {shopData.languages.map((language, index) => (
-                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                    <span className="text-gray-700">{language}</span>
-                    <span className="text-green-600">✓</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-
-            {/* Special Offers */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.6, delay: 0.6 }}
-              className="bg-white rounded-2xl shadow-lg p-6"
-            >
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Special Offers</h3>
-              
-              <div className="space-y-3">
-                {shopData.specialOffers.map((offer, index) => (
-                  <div key={index} className="p-3 bg-gradient-to-r from-lime-50 to-emerald-50 rounded-lg border border-lime-200">
-                    <p className="text-sm text-lime-800 font-medium">{offer}</p>
-                  </div>
-                ))}
-              </div>
             </motion.div>
           </div>
         </div>

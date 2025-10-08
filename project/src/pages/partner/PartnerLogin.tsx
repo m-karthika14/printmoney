@@ -33,7 +33,10 @@ const PartnerLogin = () => {
         return;
       }
       // Login successful, redirect to dashboard
-      navigate('/dashboard', { state: { shop: data.shop } });
+      localStorage.setItem('registeredShopEmail', data.shop.email);
+      localStorage.setItem('shopId', data.shop._id);
+      console.log('Set shopId:', data.shop._id);
+      navigate('/dashboard');
     } catch (err) {
       setLoginError('Login failed. Please try again.');
     } finally {

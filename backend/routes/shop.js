@@ -1,5 +1,30 @@
 const express = require('express');
 const router = express.Router();
+const NewShop = require('../models/NewShop');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+
+// PATCH update shop profile (name, shopId, description, phone, email, website, isOpen)
+router.patch('/:id/profile', async (req, res) => {
+	try {
+		const updateFields = {};
+		const allowed = ['name', 'shopId', 'description', 'phone', 'email', 'website', 'isOpen', 'address', 'workingHours'];
+		for (const key of allowed) {
+			if (key in req.body) updateFields[key] = req.body[key];
+		}
+		const shop = await NewShop.findByIdAndUpdate(
+			req.params.id,
+			{ $set: updateFields },
+			{ new: true, runValidators: true }
+		);
+		if (!shop) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		res.json(shop);
+	} catch (error) {
+		res.status(400).json({ message: error.message });
+	}
+});
 
 // PATCH add/update printers to a shop (onboarding)
 router.patch('/:id/printers', async (req, res) => {
@@ -106,10 +131,6 @@ router.patch('/:id/services', async (req, res) => {
 		res.status(400).json({ message: error.message });
 	}
 });
-
-const NewShop = require('../models/NewShop');
-const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
 
 // PATCH update agent status and installedAt (onboarding agent install)
 router.patch('/:id/agent', async (req, res) => {
@@ -238,7 +259,6 @@ router.post('/login', async (req, res) => {
 		if (!shop) {
 			return res.status(401).json({ message: 'Invalid email or password' });
 		}
-		const bcrypt = require('bcryptjs');
 		const valid = await bcrypt.compare(password, shop.password);
 		if (!valid) {
 			return res.status(401).json({ message: 'Invalid email or password' });

@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { 
   Printer, 
   Home, 
@@ -16,9 +15,27 @@ import {
   Bell
 } from 'lucide-react';
 
-const PartnerLayout = ({ children }) => {
+const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const [shopData, setShopData] = useState({ name: '', shopId: '' });
+
+  useEffect(() => {
+    const fetchShop = async () => {
+      const id = localStorage.getItem('shopId');
+      if (!id) return;
+      try {
+        const res = await fetch(`http://localhost:5000/api/shops/${id}`);
+        if (res.ok) {
+          const shop = await res.json();
+          setShopData({ name: shop.name || shop.shopName || '', shopId: shop.shopId || '' });
+        }
+      } catch (err) {
+        // handle error
+      }
+    };
+    fetchShop();
+  }, []);
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
@@ -114,11 +131,11 @@ const PartnerLayout = ({ children }) => {
               
               <div className="flex items-center space-x-3">
                 <div className="text-right">
-                  <p className="text-sm font-medium text-gray-900">Raj Digital Center</p>
-                  <p className="text-xs text-gray-500">ID: RDC001 • MG Road, Bangalore</p>
+                  <p className="text-sm font-medium text-gray-900">{shopData.name || 'Shop Name'}</p>
+                  <p className="text-xs text-gray-500">ID: {shopData.shopId.split(' • ')[0] || 'Loading...'}</p>
                 </div>
                 <div className="h-10 w-10 bg-gradient-to-r from-lime-500 to-emerald-500 rounded-full flex items-center justify-center">
-                  <span className="text-white font-semibold">R</span>
+                  <span className="text-white font-semibold">{shopData.name ? shopData.name.charAt(0).toUpperCase() : 'S'}</span>
                 </div>
               </div>
             </div>
