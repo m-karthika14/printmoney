@@ -1,24 +1,73 @@
+
+
+
+
+
 const express = require('express');
 const router = express.Router();
 const NewShop = require('../models/NewShop');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
+// PATCH update only pricing (onboarding)
+router.patch('/shop/:id/pricing', async (req, res) => {
+	try {
+		const { pricing } = req.body;
+		if (!pricing) return res.status(400).json({ message: 'Pricing data missing' });
+
+		const updatedShop = await NewShop.findByIdAndUpdate(
+			req.params.id,
+			{ $set: { pricing } },
+			{ new: true }
+		);
+
+		if (!updatedShop) return res.status(404).json({ message: 'Shop not found' });
+
+		res.status(200).json({ message: 'Pricing updated successfully', shop: updatedShop });
+	} catch (error) {
+		console.error('Error updating pricing:', error);
+		res.status(500).json({ message: 'Server error while updating pricing' });
+	}
+});
+
 // PATCH update shop profile (name, shopId, description, phone, email, website, isOpen)
 router.patch('/:id/profile', async (req, res) => {
 	try {
+		console.log('PATCH /:id/profile body:', req.body);
 		const updateFields = {};
-		const allowed = ['name', 'shopId', 'description', 'phone', 'email', 'website', 'isOpen', 'address', 'workingHours'];
+		const allowed = ['name', 'shopId', 'description', 'phone', 'email', 'website', 'isOpen', 'address'];
 		for (const key of allowed) {
 			if (key in req.body) updateFields[key] = req.body[key];
 		}
+
+		// Handle workingHours update with nested isClosed
+		if ('workingHours' in req.body && typeof req.body.workingHours === 'object') {
+			const allDays = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+			for (const day of allDays) {
+				const wh = req.body.workingHours[day] || {};
+				const openVal = typeof wh.open !== 'undefined' ? wh.open : '';
+				const closeVal = typeof wh.close !== 'undefined' ? wh.close : '';
+				// Always set isClosed true if both open and close are empty
+				const isClosedVal = (!openVal && !closeVal) ? true : false;
+				updateFields[`workingHours.${day}.open`] = openVal;
+				updateFields[`workingHours.${day}.close`] = closeVal;
+				updateFields[`workingHours.${day}.isClosed`] = isClosedVal;
+			}
+		}
+
 		const shop = await NewShop.findByIdAndUpdate(
 			req.params.id,
 			{ $set: updateFields },
 			{ new: true, runValidators: true }
 		);
+		console.log('PATCH /:id/profile updated shop:', shop);
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found' });
+		}
+		// Ensure isOpen is always present in response
+		if (typeof shop.isOpen === 'undefined') {
+			shop.isOpen = true;
+			await shop.save();
 		}
 		res.json(shop);
 	} catch (error) {
@@ -182,6 +231,11 @@ router.get('/:id', async (req, res) => {
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
+		// Ensure isOpen is always present in response
+		if (typeof shop.isOpen === 'undefined') {
+			shop.isOpen = true;
+			await shop.save();
+		}
 		res.json(shop);
 	} catch (error) {
 		res.status(500).json({ message: error.message });
@@ -204,12 +258,17 @@ router.post('/', async (req, res) => {
 		}
 		// Hash password
 		const hashedPassword = await bcrypt.hash(req.body.password, 10);
-		const shop = new NewShop({
+		// Ensure pricing field is included if provided
+		const shopData = {
 			...req.body,
 			password: hashedPassword,
 			shopId: generateShopId(),
 			apiKey: generateApiKey()
-		});
+		};
+		if (req.body.pricing) {
+			shopData.pricing = req.body.pricing;
+		}
+		const shop = new NewShop(shopData);
 		const savedShop = await shop.save();
 		res.status(201).json(savedShop);
 	} catch (error) {

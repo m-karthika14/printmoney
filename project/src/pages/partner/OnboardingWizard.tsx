@@ -258,6 +258,22 @@ const OnboardingWizard: React.FC = () => {
     }
   };
 
+  // PATCH pricing to backend
+  const patchPricing = async () => {
+    if (!mongoId) return;
+    try {
+  const response = await fetch(`http://localhost:5000/api/shops/shop/${mongoId}/pricing`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pricing })
+      });
+      const result = await response.json();
+      console.log('patchPricing: backend response:', result);
+    } catch (err) {
+      console.error('patchPricing: error sending pricing:', err);
+    }
+  };
+
   const nextStep = async () => {
     if (currentStep === 1) {
       await patchPlan();
@@ -269,6 +285,9 @@ const OnboardingWizard: React.FC = () => {
     }
     if (currentStep === 3) {
       await patchPrinters();
+    }
+    if (currentStep === 4) {
+      await patchPricing();
     }
     if (currentStep === 5) {
       await patchServices();

@@ -5,6 +5,14 @@ type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 's
 interface WorkingHour {
   open: string;
   close: string;
+  isClosed?: boolean;
+}
+interface Service {
+  id: string;
+  name: string;
+  selected: boolean;
+  isCustom: boolean;
+  price: string;
 }
 interface ShopProfileData {
   _id?: string;
@@ -17,7 +25,7 @@ interface ShopProfileData {
   email: string;
   isOpen: boolean;
   workingHours: Record<DayOfWeek, WorkingHour>;
-  services: string[];
+  services: Service[];
 }
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -121,6 +129,14 @@ const ShopProfile: React.FC = () => {
         // Use shopId from tempData/shopData
         const id = tempData._id || shopData._id || tempData.shopId || shopData.shopId;
         if (!id) return;
+        // Ensure all days have open, close, isClosed
+        const workingHoursToSend: Record<DayOfWeek, WorkingHour> = { ...tempData.workingHours };
+        days.forEach((day) => {
+          if (!workingHoursToSend[day]) workingHoursToSend[day] = { open: '', close: '', isClosed: true };
+              workingHoursToSend[day].isClosed = (workingHoursToSend[day].isClosed === true || (!workingHoursToSend[day].open && !workingHoursToSend[day].close));
+          if (typeof workingHoursToSend[day].open === 'undefined') workingHoursToSend[day].open = '';
+          if (typeof workingHoursToSend[day].close === 'undefined') workingHoursToSend[day].close = '';
+        });
         const res = await fetch(`http://localhost:5000/api/shops/${id}/profile`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -132,7 +148,7 @@ const ShopProfile: React.FC = () => {
             phone: tempData.phone,
             email: tempData.email,
             isOpen: tempData.isOpen,
-            workingHours: tempData.workingHours
+            workingHours: workingHoursToSend
           })
         });
         if (res.ok) {
@@ -154,10 +170,55 @@ const ShopProfile: React.FC = () => {
     setIsEditing(false);
   };
 
-  const toggleShopStatus = () => {
+  const fetchShop = async () => {
+    try {
+      // Try to get _id from localStorage if previously saved
+      let id = localStorage.getItem('shopMongoId');
+      if (!id) {
+        // Fallback to shopId
+        id = localStorage.getItem('shopId');
+      }
+      if (!id) return;
+      const res = await fetch(`http://localhost:5000/api/shops/${id}`);
+      if (!res.ok) return;
+      const shop: ShopProfileData = await res.json();
+      // Save _id to localStorage for future requests
+      if (shop._id) localStorage.setItem('shopMongoId', shop._id);
+      const workingHours: Record<DayOfWeek, WorkingHour> = { ...defaultWorkingHours, ...(shop.workingHours || {}) };
+      setShopData({ ...defaultShopData, ...shop, name: shop.name || shop.shopName, workingHours });
+    } catch (err) {
+      console.log('Error fetching shop:', err);
+    }
+  };
+
+  const toggleShopStatus = async () => {
     const newStatus = !shopData.isOpen;
-    setShopData({ ...shopData, isOpen: newStatus });
-    setTempData({ ...tempData, isOpen: newStatus });
+    // Optimistically update local state
+    setShopData((prev) => ({ ...prev, isOpen: newStatus }));
+    try {
+      // Always use _id if available, fallback to shopId
+      const id = shopData._id || localStorage.getItem('shopMongoId') || shopData.shopId;
+      if (!id) return;
+      const res = await fetch(`http://localhost:5000/api/shops/${id}/profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isOpen: newStatus })
+      });
+      const result = res.ok ? await res.json() : null;
+      console.log('PATCH /profile response:', result);
+      if (res.ok) {
+        // Refetch shop profile to get latest status from backend
+        await fetchShop();
+      } else {
+        // Revert local state on error
+        setShopData((prev) => ({ ...prev, isOpen: !newStatus }));
+        console.log('Failed to update shop status');
+      }
+    } catch (err) {
+      // Revert local state on error
+      setShopData((prev) => ({ ...prev, isOpen: !newStatus }));
+      console.log('Error updating shop status:', err);
+    }
   };
 
   const updateWorkingHours = (day: DayOfWeek, field: keyof WorkingHour, value: string) => {
@@ -167,25 +228,11 @@ const ShopProfile: React.FC = () => {
         ...tempData.workingHours,
         [day]: {
           ...tempData.workingHours[day],
-          [field]: value
+          [field]: value,
+          // If closing, set isClosed true; if opening, set isClosed false
+          isClosed: field === 'open' && value === '' ? true : (field === 'close' && value === '' ? true : false)
         }
       }
-    });
-  };
-
-  const addService = (service: string) => {
-    if (service && !tempData.services.includes(service)) {
-      setTempData({
-        ...tempData,
-        services: [...tempData.services, service]
-      });
-    }
-  };
-
-  const removeService = (index: number) => {
-    setTempData({
-      ...tempData,
-      services: tempData.services.filter((_, i) => i !== index)
     });
   };
 
@@ -386,18 +433,34 @@ const ShopProfile: React.FC = () => {
                           <label className="flex items-center">
                             <input
                               type="checkbox"
-                              checked={isClosed}
+                              checked={wh.isClosed || isClosed}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                 if (e.target.checked) {
-                                  // Mark as closed - set empty times
-                                  updateWorkingHours(day as DayOfWeek, 'open', '');
-                                  updateWorkingHours(day as DayOfWeek, 'close', '');
+                                  // Mark as closed - set empty times and isClosed true
+                                  setTempData({
+                                    ...tempData,
+                                    workingHours: {
+                                      ...tempData.workingHours,
+                                      [day]: {
+                                        open: '',
+                                        close: '',
+                                        isClosed: true
+                                      }
+                                    }
+                                  });
                                 } else {
-                                  // Mark as open - set default times if empty
-                                  const currentOpen = wh.open || '09:00';
-                                  const currentClose = wh.close || '17:00';
-                                  updateWorkingHours(day as DayOfWeek, 'open', currentOpen);
-                                  updateWorkingHours(day as DayOfWeek, 'close', currentClose);
+                                  // Mark as open - set default times and isClosed false
+                                  setTempData({
+                                    ...tempData,
+                                    workingHours: {
+                                      ...tempData.workingHours,
+                                      [day]: {
+                                        open: '09:00',
+                                        close: '17:00',
+                                        isClosed: false
+                                      }
+                                    }
+                                  });
                                 }
                               }}
                               className="rounded text-lime-500 focus:ring-lime-500"
@@ -518,41 +581,16 @@ const ShopProfile: React.FC = () => {
             >
               <h3 className="text-xl font-semibold text-gray-900 mb-6">Services Offered</h3>
               
-              <div className="flex flex-wrap gap-2 mb-4">
-                {(isEditing ? tempData : shopData).services.map((service, index) => (
+              <div className="flex flex-wrap gap-2">
+                {shopData.services.map((service, index) => (
                   <span
                     key={index}
                     className="inline-flex items-center px-3 py-1 bg-lime-100 text-lime-800 rounded-full text-sm font-medium"
                   >
-                    {service}
-                    {isEditing && (
-                      <button
-                        onClick={() => removeService(index)}
-                        className="ml-2 text-lime-600 hover:text-lime-800"
-                      >
-                        ×
-                      </button>
-                    )}
+                    {service.name}
                   </span>
                 ))}
               </div>
-
-              {isEditing && (
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add new service"
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
-                    onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                      const target = e.target as HTMLInputElement;
-                      if (e.key === 'Enter') {
-                        addService(target.value);
-                        target.value = '';
-                      }
-                    }}
-                  />
-                </div>
-              )}
             </motion.div>
           </div>
 

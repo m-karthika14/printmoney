@@ -33,11 +33,12 @@ const PrinterSchema = new mongoose.Schema({
 // ✅ Virtual property to get active printer config
 PrinterSchema.virtual('activeConfig').get(function () {
   const agentData = this.agentDetected?.toObject?.() || {};
+  const hasAgentData = agentData.name || agentData.status || (agentData.capabilities && agentData.capabilities.length > 0);
 
   if (this.manualOverride && Object.keys(this.manualOverride.toObject?.() || {}).length > 0) {
     const manualData = this.manualOverride.toObject();
 
-    if (this.useAgentValues) {
+    if (this.useAgentValues && hasAgentData) {
       return agentData;
     }
 
@@ -81,14 +82,16 @@ const NewShopSchema = new mongoose.Schema({
 
   description: { type: String, default: "" },
 
+  isOpen: { type: Boolean, default: true }, // <-- Added field for shop open/close status
+
   workingHours: {
-    monday: { open: String, close: String },
-    tuesday: { open: String, close: String },
-    wednesday: { open: String, close: String },
-    thursday: { open: String, close: String },
-    friday: { open: String, close: String },
-    saturday: { open: String, close: String },
-    sunday: { open: String, close: String }
+    monday: { open: String, close: String, isClosed: { type: Boolean, default: false } },
+    tuesday: { open: String, close: String, isClosed: { type: Boolean, default: false } },
+    wednesday: { open: String, close: String, isClosed: { type: Boolean, default: false } },
+    thursday: { open: String, close: String, isClosed: { type: Boolean, default: false } },
+    friday: { open: String, close: String, isClosed: { type: Boolean, default: false } },
+    saturday: { open: String, close: String, isClosed: { type: Boolean, default: false } },
+    sunday: { open: String, close: String, isClosed: { type: Boolean, default: false } }
   },
 
   plan: {
