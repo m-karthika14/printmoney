@@ -1,33 +1,139 @@
-
-
-
-
-
 const express = require('express');
 const router = express.Router();
 const NewShop = require('../models/NewShop');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
-// PATCH update only pricing (onboarding)
-router.patch('/shop/:id/pricing', async (req, res) => {
+// GET paperSizePricing for a shop
+router.get('/shop/:id/paper-size-pricing', async (req, res) => {
 	try {
-		const { pricing } = req.body;
-		if (!pricing) return res.status(400).json({ message: 'Pricing data missing' });
-
-		const updatedShop = await NewShop.findByIdAndUpdate(
-			req.params.id,
-			{ $set: { pricing } },
-			{ new: true }
-		);
-
-		if (!updatedShop) return res.status(404).json({ message: 'Shop not found' });
-
-		res.status(200).json({ message: 'Pricing updated successfully', shop: updatedShop });
+		const shop = await NewShop.findById(req.params.id);
+		if (!shop) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		res.status(200).json({ paperSizePricing: shop.pricing.paperSizePricing });
 	} catch (error) {
-		console.error('Error updating pricing:', error);
-		res.status(500).json({ message: 'Server error while updating pricing' });
+		console.error('Error fetching paperSizePricing:', error);
+		res.status(500).json({ message: 'Server error while fetching paperSizePricing' });
 	}
+});
+
+// PATCH update paperSizePricing for a shop
+router.patch('/shop/:id/paper-size-pricing', async (req, res) => {
+	try {
+		console.log('[PaperSizePricing] PATCH called for shopId:', req.params.id);
+		console.log('[PaperSizePricing] Received body:', JSON.stringify(req.body, null, 2));
+		const { paperSizePricing } = req.body;
+		if (!paperSizePricing || typeof paperSizePricing !== 'object') {
+			console.log('[PaperSizePricing] Invalid paperSizePricing data:', paperSizePricing);
+			return res.status(400).json({ message: 'Invalid paperSizePricing data' });
+		}
+		const shop = await NewShop.findByIdAndUpdate(
+			req.params.id,
+			{ $set: { 'pricing.paperSizePricing': paperSizePricing } },
+			{ new: true, runValidators: true }
+		);
+		if (!shop) {
+			console.log('[PaperSizePricing] Shop not found for id:', req.params.id);
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		console.log('[PaperSizePricing] Updated paperSizePricing:', JSON.stringify(shop.pricing.paperSizePricing, null, 2));
+		res.status(200).json({ message: 'Paper size pricing updated', paperSizePricing: shop.pricing.paperSizePricing });
+	} catch (error) {
+		console.error('Error updating paperSizePricing:', error);
+		res.status(500).json({ message: 'Server error while updating paperSizePricing' });
+	}
+});
+// ...existing code...
+
+// GET pricing details for a shop
+router.get('/shop/:id/pricing', async (req, res) => {
+    try {
+        const shop = await NewShop.findById(req.params.id);
+        if (!shop) {
+            return res.status(404).json({ message: 'Shop not found' });
+        }
+        res.status(200).json({ pricing: shop.pricing });
+    } catch (error) {
+        console.error('Error fetching pricing:', error);
+        res.status(500).json({ message: 'Server error while fetching pricing' });
+    }
+});
+
+// PATCH update pricing details for a shop
+router.patch('/shop/:id/pricing', async (req, res) => {
+    try {
+        const { bwSingle, colorSingle, bwDouble, colorDouble } = req.body;
+        if (!bwSingle || !colorSingle || !bwDouble || !colorDouble) {
+            return res.status(400).json({ message: 'Incomplete pricing data' });
+        }
+
+        const updatedShop = await NewShop.findByIdAndUpdate(
+            req.params.id,
+            { $set: { 'pricing.bwSingle': bwSingle, 'pricing.colorSingle': colorSingle, 'pricing.bwDouble': bwDouble, 'pricing.colorDouble': colorDouble } },
+            { new: true }
+        );
+
+        if (!updatedShop) {
+            return res.status(404).json({ message: 'Shop not found' });
+        }
+
+        res.status(200).json({ message: 'Pricing updated successfully', pricing: updatedShop.pricing });
+    } catch (error) {
+        console.error('Error updating pricing:', error);
+        res.status(500).json({ message: 'Server error while updating pricing' });
+    }
+});
+
+// PATCH update services for a shop
+router.patch('/shop/:id/services', async (req, res) => {
+    try {
+        console.log('[BACKEND] Services update request received for shop ID:', req.params.id);
+        console.log('[BACKEND] Request body:', JSON.stringify(req.body, null, 2));
+        
+        const { services } = req.body;
+        if (!services || !Array.isArray(services)) {
+            console.error('[BACKEND] Invalid services data - not an array:', services);
+            return res.status(400).json({ message: 'Services must be provided as an array' });
+        }
+        
+        console.log('[BACKEND] Services array length:', services.length);
+        console.log('[BACKEND] Sample service item:', services[0]);
+        
+        // First check if shop exists
+        const shop = await NewShop.findById(req.params.id);
+        if (!shop) {
+            console.error('[BACKEND] Shop not found with ID:', req.params.id);
+            return res.status(404).json({ message: 'Shop not found' });
+        }
+        
+        console.log('[BACKEND] Found shop:', shop.shopName || shop.email);
+        console.log('[BACKEND] Current services count:', shop.services?.length || 0);
+        
+        // Update services
+        const updatedShop = await NewShop.findByIdAndUpdate(
+            req.params.id,
+            { $set: { services: services } },
+            { new: true }
+        );
+
+        if (!updatedShop) {
+            console.error('[BACKEND] Failed to update shop with ID:', req.params.id);
+            return res.status(404).json({ message: 'Shop not found after update attempt' });
+        }
+        
+        console.log('[BACKEND] Services updated successfully');
+        console.log('[BACKEND] Updated services count:', updatedShop.services?.length || 0);
+        
+        res.status(200).json({ 
+            message: 'Services updated successfully', 
+            services: updatedShop.services,
+            count: updatedShop.services?.length || 0
+        });
+    } catch (error) {
+        console.error('[BACKEND] Error updating services:', error);
+        res.status(500).json({ message: `Server error while updating services: ${error.message}` });
+    }
 });
 
 // PATCH update shop profile (name, shopId, description, phone, email, website, isOpen)

@@ -31,7 +31,9 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 const shopRoutes = require('./routes/shop');
+const newShopRoutes = require('./routes/newshop');
 app.use('/api/shops', shopRoutes);
+app.use('/api/newshop', newShopRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {

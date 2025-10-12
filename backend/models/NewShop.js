@@ -135,7 +135,58 @@ const NewShopSchema = new mongoose.Schema({
     bwSingle: String,
     colorSingle: String,
     bwDouble: String,
-    colorDouble: String
+    colorDouble: String,
+    customDiscounts: [
+      {
+        name: String,
+        discountPercent: Number
+      }
+    ],
+    fixedDocuments: [
+      {
+        docName: String,
+        docUrl: String,
+        price: Number
+      }
+    ],
+    paperSizePricing: {
+      A3: {
+        bwSingle: { type: Number, default: 0 },
+        colorSingle: { type: Number, default: 0 },
+        bwDouble: { type: Number, default: 0 },
+        colorDouble: { type: Number, default: 0 }
+      },
+      A5: {
+        bwSingle: { type: Number, default: 0 },
+        colorSingle: { type: Number, default: 0 },
+        bwDouble: { type: Number, default: 0 },
+        colorDouble: { type: Number, default: 0 }
+      },
+      Legal: {
+        bwSingle: { type: Number, default: 0 },
+        colorSingle: { type: Number, default: 0 },
+        bwDouble: { type: Number, default: 0 },
+        colorDouble: { type: Number, default: 0 }
+      },
+      Letter: {
+        bwSingle: { type: Number, default: 0 },
+        colorSingle: { type: Number, default: 0 },
+        bwDouble: { type: Number, default: 0 },
+        colorDouble: { type: Number, default: 0 }
+      },
+      Photo: {
+        bwSingle: { type: Number, default: 0 },
+        colorSingle: { type: Number, default: 0 },
+        bwDouble: { type: Number, default: 0 },
+        colorDouble: { type: Number, default: 0 }
+      },
+      Custom: {
+        bwSingle: { type: Number, default: 0 },
+        colorSingle: { type: Number, default: 0 },
+        bwDouble: { type: Number, default: 0 },
+        colorDouble: { type: Number, default: 0 }
+      }
+    }
   },
 
   services: [ServiceSchema],

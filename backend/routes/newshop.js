@@ -1,6 +1,41 @@
 const express = require('express');
 const router = express.Router();
 const NewShop = require('../models/NewShop');
+// ...existing code...
+
+// GET: fetch only pricing.fixedDocuments for a shop
+router.get('/:id/fixed-documents', async (req, res) => {
+	try {
+ 		const shop = await NewShop.findById(req.params.id);
+ 		if (!shop) {
+ 			return res.status(404).json({ message: 'Shop not found' });
+ 		}
+ 		res.json(shop.pricing.fixedDocuments || []);
+ 	} catch (error) {
+ 		res.status(400).json({ message: error.message });
+ 	}
+});
+
+// PATCH: update only pricing.fixedDocuments for a shop
+router.patch('/:id/fixed-documents', async (req, res) => {
+	try {
+ 		const { fixedDocuments } = req.body;
+ 		if (!Array.isArray(fixedDocuments)) {
+ 			return res.status(400).json({ message: 'fixedDocuments must be an array' });
+ 		}
+ 		const shop = await NewShop.findByIdAndUpdate(
+ 			req.params.id,
+ 			{ $set: { 'pricing.fixedDocuments': fixedDocuments } },
+ 			{ new: true, runValidators: true }
+ 		);
+ 		if (!shop) {
+ 			return res.status(404).json({ message: 'Shop not found' });
+ 		}
+ 		res.json(shop.pricing.fixedDocuments);
+ 	} catch (error) {
+ 		res.status(400).json({ message: error.message });
+ 	}
+});
 // GET all newshops
 router.get('/', async (req, res) => {
 	try {
@@ -62,6 +97,40 @@ router.delete('/:id', async (req, res) => {
 		res.json({ message: 'Shop deleted successfully' });
 	} catch (error) {
 		res.status(500).json({ message: error.message });
+	}
+});
+
+// GET: fetch only pricing.customDiscounts for a shop
+router.get('/:id/discounts', async (req, res) => {
+	try {
+		const shop = await NewShop.findById(req.params.id);
+		if (!shop) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		res.json(shop.pricing.customDiscounts || []);
+	} catch (error) {
+		res.status(400).json({ message: error.message });
+	}
+});
+
+// PATCH: update only pricing.customDiscounts for a shop
+router.patch('/:id/discounts', async (req, res) => {
+	try {
+		const { customDiscounts } = req.body;
+		if (!Array.isArray(customDiscounts)) {
+			return res.status(400).json({ message: 'customDiscounts must be an array' });
+		}
+		const shop = await NewShop.findByIdAndUpdate(
+			req.params.id,
+			{ $set: { 'pricing.customDiscounts': customDiscounts } },
+			{ new: true, runValidators: true }
+		);
+		if (!shop) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		res.json(shop.pricing.customDiscounts);
+	} catch (error) {
+		res.status(400).json({ message: error.message });
 	}
 });
 
