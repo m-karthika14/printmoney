@@ -61,10 +61,7 @@ const OnboardingWizard: React.FC = () => {
   const [agentSuccess, setAgentSuccess] = useState(false);
   
   // Step 3: Printer Detection
-  const [detectedPrinters] = useState([
-    { id: '1', name: 'HP LaserJet Pro', model: 'M404dn', capabilities: ['B&W', 'Duplex'] },
-    { id: '2', name: 'Canon PIXMA', model: 'G3010', capabilities: ['Color', 'Photo'] }
-  ]);
+  const [detectedPrinters, setDetectedPrinters] = useState<{ id: string; name: string; model: string; capabilities: string[] }[]>([]);
   const [printerOverrides, setPrinterOverrides] = useState<Record<string, PrinterOverride>>({});
   const [editingPrinter, setEditingPrinter] = useState<string | null>(null);
   
@@ -223,33 +220,72 @@ const OnboardingWizard: React.FC = () => {
       console.log('patchPrinters: mongoId is missing');
       return;
     }
-    // Map detectedPrinters to correct schema
-    const printers = detectedPrinters.map(printer => ({
-      printerId: printer.id,
-      agentDetected: {
-        name: printer.name,
-        status: "Ready", // You can update this if you have real status
-        capabilities: [
-          {
-            type: printer.capabilities.includes("Color") ? "Color" : "B/W",
-            duplex: printer.capabilities.includes("Duplex"),
-            paperSizes: ["A4", "Letter"]
-          }
-        ]
-      },
-      manualOverride: printerOverrides[printer.id] || {
-        name: "",
-        notes: "",
-        capabilities: []
-      },
-      useAgentValues: true
-    }));
-    console.log('patchPrinters: sending printers array:', printers);
+    // Only update agentDetected values for existing printers, prevent dummies and samples
+    let currentPrinters: any[] = [];
+    try {
+      const res = await fetch(`http://localhost:5000/api/shops/${mongoId}/printers`);
+      if (res.ok) {
+        const data = await res.json();
+        currentPrinters = Array.isArray(data.printers) ? data.printers : [];
+      }
+    } catch {}
+
+    // Only use agent-detected printers (no samples/dummies)
+    const realPrinters = detectedPrinters.filter(printer => printer.id !== 'dummy' && printer.name.toLowerCase() !== 'dummy' && printer.name !== 'HP LaserJet Pro' && printer.name !== 'Canon PIXMA');
+
+    // Deduplicate by agentDetected.name
+    const uniquePrintersMap = new Map<string, typeof realPrinters[0]>();
+    realPrinters.forEach(printer => {
+      uniquePrintersMap.set(printer.name, printer);
+    });
+    const uniquePrinters = Array.from(uniquePrintersMap.values());
+
+    const updatedPrinters: any[] = [];
+    uniquePrinters.forEach(printer => {
+      let existing = currentPrinters.find(p => p.agentDetected && p.agentDetected.name === printer.name);
+      if (existing) {
+        existing.agentDetected = {
+          ...existing.agentDetected,
+          name: printer.name,
+          status: "Ready",
+          capabilities: [
+            {
+              type: printer.capabilities.includes("Color") ? "Color" : "B/W",
+              duplex: printer.capabilities.includes("Duplex"),
+              paperSizes: ["A4", "Letter"]
+            }
+          ]
+        };
+        updatedPrinters.push(existing);
+      } else {
+        updatedPrinters.push({
+          agentDetected: {
+            name: printer.name,
+            status: "Ready",
+            capabilities: [
+              {
+                type: printer.capabilities.includes("Color") ? "Color" : "B/W",
+                duplex: printer.capabilities.includes("Duplex"),
+                paperSizes: ["A4", "Letter"]
+              }
+            ]
+          },
+          manualOverride: printerOverrides[printer.id] || {
+            name: "",
+            notes: "",
+            capabilities: []
+          },
+          useAgentValues: true
+        });
+      }
+    });
+    // Only one entry per agent-detected printer
+    console.log('patchPrinters: sending printers array:', updatedPrinters);
     try {
       const response = await fetch(`http://localhost:5000/api/shops/${mongoId}/printers`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ printers })
+        body: JSON.stringify({ printers: updatedPrinters })
       });
       const result = await response.json();
       console.log('patchPrinters: backend response:', result);

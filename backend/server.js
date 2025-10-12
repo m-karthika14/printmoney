@@ -29,11 +29,24 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static files (for uploaded files)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
+
 const shopRoutes = require('./routes/shop');
 const newShopRoutes = require('./routes/newshop');
+const finalJobRoutes = require('./routes/finaljob');
 app.use('/api/shops', shopRoutes);
 app.use('/api/newshop', newShopRoutes);
+app.use('/api/finaljobs', finalJobRoutes);
+
+// Printer sync endpoint
+const syncPrinters = require('./utils/printerSync');
+app.post('/api/sync/printers/:shopId', async (req, res) => {
+  try {
+    await syncPrinters(req.params.shopId);
+    res.json({ message: 'Printer sync completed.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // Health check route
 app.get('/api/health', (req, res) => {
@@ -71,6 +84,11 @@ mongoose.connect(process.env.MONGO_URI, {
   console.error('MongoDB connection error:', error);
   process.exit(1);
 });
+
+// Start printer sync scheduler (every minute)
+require('./printerSyncScheduler');
+// Start job poller for finalJobs assignment (every 15 seconds)
+require('./jobPoller');
 
 // Start server
 const PORT = process.env.PORT || 5000;

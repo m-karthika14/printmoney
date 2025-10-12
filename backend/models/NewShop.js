@@ -2,14 +2,14 @@ const mongoose = require('mongoose');
 
 // Capability schema (for both agent + manual)
 const CapabilitySchema = new mongoose.Schema({
-  type: { type: String, enum: ["B/W", "Color", "Color+B/W"] },
+  type: { type: String, enum: ["B/W", "Color", "Color+B/W", "color"] },
   duplex: { type: Boolean, default: false },
   paperSizes: [String] // e.g. ["A4", "A3", "Letter"]
 }, { _id: false }); // no separate _id for each capability
 
 // Printer schema
 const PrinterSchema = new mongoose.Schema({
-  printerId: { type: String, required: true }, // unique per shop
+  printerId: { type: String }, // unique per shop
   status: { type: String, default: "offline" }, // online/offline
 
   // Real values (always updated by agent, not editable by shopkeeper)
@@ -66,7 +66,7 @@ const ServiceSchema = new mongoose.Schema({
 
 // Agent schema (only status + installedAt, no Agent ID)
 const AgentSchema = new mongoose.Schema({
-  status: { type: String, enum: ["pending", "installed", "error"], default: "pending" },
+  status: { type: String, enum: ["pending", "installed", "error", "completed"], default: "pending" },
   installedAt: { type: Date }
 }, { _id: false });
 
@@ -104,12 +104,12 @@ const NewShopSchema = new mongoose.Schema({
   payment: {
     method: {
       type: String,
-      enum: ["UPI", "Card", "NetBanking"],
+      enum: ["UPI", "Card", "NetBanking", "cash", "credit"], // Added 'cash' and 'credit'
       required: false
     },
     status: {
       type: String,
-      enum: ["pending", "success", "failed", "refunded"],
+      enum: ["pending", "success", "failed", "refunded", "completed"], // Added 'completed'
       default: "pending"
     },
     transactionId: { type: String },
