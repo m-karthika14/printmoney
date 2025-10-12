@@ -37,7 +37,7 @@ async function pollJobsAndAssignPrinters() {
       print_options: job.print_options,
       total_amount: job.total_amount,
       payment_status: job.payment_status,
-      job_status: 'assigned',
+      job_status: 'alloted',
       collection_pin: job.collection_pin,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
