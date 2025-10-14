@@ -9,8 +9,14 @@ const CapabilitySchema = new mongoose.Schema({
 
 // Printer schema
 const PrinterSchema = new mongoose.Schema({
-  printerId: { type: String }, // unique per shop
-  status: { type: String, default: "offline" }, // online/offline
+  // unique per shop (sourced from agent.printer_id)
+  printerid: { type: String },
+  status: { type: String, default: "offline" }, // "online" | "offline"
+  // Shopkeeper controlled allow/deny for allocation
+  manualStatus: { type: String, enum: ["on", "off"], default: "on" },
+  // additional agent metadata
+  port: { type: String, default: null },
+  lastUpdate: { type: Date },
 
   // Real values (always updated by agent, not editable by shopkeeper)
   agentDetected: {

@@ -11,9 +11,11 @@ const FinalJobSchema = new mongoose.Schema({
   payment_status: { type: String },
   job_status: {
     type: String,
-    enum: ['pending', 'alloted', 'processing', 'printing', 'ready'],
+    enum: ['pending', 'printing', 'completed'],
     default: 'pending'
   },
+  // Allocation status on the printer pipeline
+  printer_status: { type: String, enum: ['pending', 'alloted'], default: 'alloted' },
   collection_pin: { type: String },
   queued_at: { type: Date },
   processing_started_at: { type: Date },
@@ -21,6 +23,10 @@ const FinalJobSchema = new mongoose.Schema({
   completed_at: { type: Date },
   printer_assigned_at: { type: Date },
   assigned_printer: { type: String },
+  // Unique printer identifier from newshops.printers
+  printerid: { type: String },
+  // Final effective printer configuration (agentDetected or manualOverride based on useAgentValues)
+  printer_config: { type: Object },
   agent_id: { type: String },
   status: { type: String },
   files_processed: { type: Number },

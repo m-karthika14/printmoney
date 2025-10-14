@@ -1,333 +1,166 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Printer, CreditCard as Edit3, Save, Info, Wifi, WifiOff, Monitor, Palette, FileText, Check, X } from 'lucide-react';
+import { Printer, CreditCard as Edit3, Save, Info, Wifi, WifiOff, Monitor, Palette, FileText, Check, X, RefreshCw } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
+import axios from 'axios';
+
+const shopId = 'T47439k'; // TODO: Replace with dynamic shopId if needed
 
 const PrinterSettings = () => {
-  const [agentPrinters, setAgentPrinters] = useState<PrinterType[]>([
-    {
-      id: 'agent_1',
-      name: 'HP LaserJet Pro',
-      model: 'M404dn',
-      type: 'laser',
-      status: 'online',
-      isEnabled: true,
-      capabilities: {
-        colorSupport: false,
-        colorMode: 'bw',
-        duplexSupport: true,
-        paperSizes: ['A4', 'Letter'],
-        maxCopies: 999
-      },
-      metadata: {
-        os: 'Windows 10',
-        driverVersion: '48.4.4623',
-        detectedAt: new Date('2025-01-15T10:30:00'),
-        ipAddress: '192.168.1.101'
-      },
-      usingAgentValues: true
-    },
-    {
-      id: 'agent_2',
-      name: 'Canon PIXMA G3010',
-      model: 'G3010',
-      type: 'inkjet',
-      status: 'online',
-      isEnabled: false,
-      capabilities: {
-        colorSupport: true,
-        colorMode: 'color+bw',
-        duplexSupport: false,
-        paperSizes: ['A4', 'Letter', 'Photo'],
-        maxCopies: 99
-      },
-      metadata: {
-        os: 'Windows 10',
-        driverVersion: '1.02',
-        detectedAt: new Date('2025-01-15T09:15:00'),
-        ipAddress: '192.168.1.102'
-      },
-      usingAgentValues: false
-    },
-    {
-      id: 'agent_3',
-      name: 'Brother HL-L2350DW',
-      model: 'HL-L2350DW',
-      type: 'laser',
-      status: 'offline',
-      isEnabled: true,
-      capabilities: {
-        colorSupport: false,
-        colorMode: 'bw',
-        duplexSupport: true,
-        paperSizes: ['A4', 'Letter'],
-        maxCopies: 999
-      },
-      metadata: {
-        os: 'Windows 10',
-        driverVersion: '1.0.3.0',
-        detectedAt: new Date('2025-01-15T08:45:00'),
-        ipAddress: '192.168.1.103'
-      },
-      usingAgentValues: true
-    },
-    {
-      id: 'agent_4',
-      name: 'Epson EcoTank L3150',
-      model: 'L3150',
-      type: 'inkjet',
-      status: 'online',
-      isEnabled: true,
-      capabilities: {
-        colorSupport: true,
-        colorMode: 'color',
-        duplexSupport: false,
-        paperSizes: ['A4', 'Letter', 'Photo'],
-        maxCopies: 99
-      },
-      metadata: {
-        os: 'Windows 10',
-        driverVersion: '2.65',
-        detectedAt: new Date('2025-01-15T11:20:00'),
-        ipAddress: '192.168.1.104'
-      },
-      usingAgentValues: true
-    },
-    {
-      id: 'agent_5',
-      name: 'Samsung ML-2161',
-      model: 'ML-2161',
-      type: 'laser',
-      status: 'online',
-      isEnabled: false,
-      capabilities: {
-        colorSupport: false,
-        colorMode: 'bw',
-        duplexSupport: false,
-        paperSizes: ['A4', 'Letter'],
-        maxCopies: 999
-      },
-      metadata: {
-        os: 'Windows 10',
-        driverVersion: '3.00.90',
-        detectedAt: new Date('2025-01-15T08:10:00'),
-        ipAddress: '192.168.1.105'
-      },
-      usingAgentValues: true
-    },
-    {
-      id: 'agent_6',
-      name: 'HP DeskJet 2720',
-      model: '2720',
-      type: 'inkjet',
-      status: 'offline',
-      isEnabled: true,
-      capabilities: {
-        colorSupport: true,
-        colorMode: 'color+bw',
-        duplexSupport: false,
-        paperSizes: ['A4', 'Letter', 'Photo'],
-        maxCopies: 50
-      },
-      metadata: {
-        os: 'Windows 10',
-        driverVersion: '48.3.4590',
-        detectedAt: new Date('2025-01-15T07:45:00'),
-        ipAddress: '192.168.1.106'
-      },
-      usingAgentValues: true
-    }
-  ]);
-
-  type PrinterType = {
-    id: string;
-    name: string;
-    model: string;
-    type: string;
-    status: 'online' | 'offline';
-    isEnabled: boolean;
-    capabilities: {
-      colorSupport: boolean;
-      colorMode?: 'bw' | 'color' | 'color+bw';
-      duplexSupport: boolean;
-      paperSizes: string[];
-      maxCopies: number;
-    };
-    metadata: {
-      os: string;
-      driverVersion: string;
-      detectedAt: Date;
-      ipAddress: string;
-    };
-    usingAgentValues: boolean;
-  };
-
-  type ManualOverrideType = {
-    name: string;
-    model: string;
-    type: string;
-    capabilities: {
-      colorSupport: boolean;
-      colorMode?: 'bw' | 'color' | 'color+bw';
-      duplexSupport: boolean;
-      paperSizes: string[];
-      maxCopies: number;
-    };
-    notes: string;
-  };
-
-  type ManualOverridesState = {
-    [key: string]: ManualOverrideType;
-  };
-
-  type EditFormType = {
-    name: string;
-    model: string;
-    type: string;
-    colorSupport: boolean;
-    colorMode: 'bw' | 'color' | 'color+bw';
-    duplexSupport: boolean;
-    paperSizes: string[];
-    maxCopies: number;
-    notes: string;
-  };
-
-  const [manualOverrides, setManualOverrides] = useState<ManualOverridesState>({
-    agent_2: {
-      name: 'Color Station Printer',
-      model: 'G3010',
-      type: 'inkjet',
-      capabilities: {
-        colorSupport: true,
-        colorMode: 'color+bw',
-        duplexSupport: true, // Override: agent detected false
-        paperSizes: ['A4', 'A3', 'Letter'], // Override: added A3
-        maxCopies: 50 // Override: reduced from 99
-      },
-      notes: 'Duplex works manually, A3 supported with manual feed'
-    }
-  });
-
+  const [printers, setPrinters] = useState<PrinterType[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterType | null>(null);
   const [editForm, setEditForm] = useState<EditFormType>({
     name: '',
-    model: '',
     type: '',
-    colorSupport: false,
-    colorMode: 'bw',
-    duplexSupport: false,
-    paperSizes: [],
-    maxCopies: 0,
+    capabilities: {
+      type: '',
+      duplex: false,
+      paperSizes: []
+    },
     notes: ''
   });
+  const [isEditing, setIsEditing] = useState(false);
+
+  type PrinterType = any; // Using backend shape directly
+
+  // Using backend shapes directly
+
+  type EditFormType = {
+    name: string;
+    type: string;
+    capabilities: {
+      type: string;
+      duplex: boolean;
+      paperSizes: string[];
+    };
+    notes: string;
+  };
+
+  useEffect(() => {
+    // Fetch printers from backend
+    const fetchPrinters = async () => {
+      try {
+        const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
+        // Add isEnabled derived from manualStatus (on/off)
+        const normalized = (response.data || []).map((p: any) => ({
+          ...p,
+          isEnabled: p.manualStatus !== 'off'
+        }));
+        setPrinters(normalized);
+      } catch (error) {
+        console.error('Error fetching printers:', error);
+      }
+    };
+
+    fetchPrinters();
+  }, []);
+
+  // Toggle manualStatus on/off for a specific printer (card & modal)
+  const toggleManualStatus = async (printer: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!printer) return;
+    const current = printer.manualStatus || (printer.isEnabled ? 'on' : 'off');
+    const newStatus = current === 'on' ? 'off' : 'on';
+    // Optimistic UI update
+    setPrinters(prev => prev.map(p => (p.printerid === printer.printerid ? { ...p, manualStatus: newStatus, isEnabled: newStatus === 'on' } : p)));
+    if (selectedPrinter?.printerid === printer.printerid) {
+      setSelectedPrinter((prev: any) => prev ? { ...prev, manualStatus: newStatus, isEnabled: newStatus === 'on' } : prev);
+    }
+    try {
+      const pid = encodeURIComponent(printer.printerid || printer.printerId);
+      await axios.patch(`http://localhost:5000/api/shops/${shopId}/printers/${pid}/manualStatus`, { manualStatus: newStatus });
+    } catch (err) {
+      console.error('Failed to toggle manualStatus', err);
+      // Revert on error
+      setPrinters(prev => prev.map(p => (p.printerid === printer.printerid ? { ...p, manualStatus: current, isEnabled: current === 'on' } : p)));
+      if (selectedPrinter?.printerid === printer.printerid) {
+        setSelectedPrinter((prev: any) => prev ? { ...prev, manualStatus: current, isEnabled: current === 'on' } : prev);
+      }
+    }
+  };
 
   const openPrinterModal = (printer: PrinterType) => {
-    const override = manualOverrides[printer.id] as ManualOverrideType | undefined;
-    const colorSupport = override?.capabilities?.colorSupport ?? printer.capabilities.colorSupport;
-    const colorMode = override?.capabilities?.colorMode || (colorSupport ? 'color' : 'bw');
-    
-    setEditForm({
-      name: override?.name || printer.name,
-      model: override?.model || printer.model,
-      type: override?.type || printer.type,
-      colorSupport,
-      colorMode,
-      duplexSupport: override?.capabilities?.duplexSupport ?? printer.capabilities.duplexSupport,
-      paperSizes: override?.capabilities?.paperSizes || printer.capabilities.paperSizes,
-      maxCopies: override?.capabilities?.maxCopies || printer.capabilities.maxCopies,
-      notes: override?.notes || ''
-    });
     setSelectedPrinter(printer);
-  };
-
-  const saveManualOverride = () => {
-    if (!selectedPrinter) return;
-    setManualOverrides(prev => ({
-      ...prev,
-      [selectedPrinter.id]: {
-        name: editForm.name,
-        model: editForm.model,
-        type: editForm.type,
-        capabilities: {
-          colorSupport: editForm.colorSupport,
-          colorMode: editForm.colorMode,
-          duplexSupport: editForm.duplexSupport,
-          paperSizes: editForm.paperSizes,
-          maxCopies: editForm.maxCopies
-        },
-        notes: editForm.notes
-      }
-    }));
-  };
-
-  const useAgentValues = (printerId: string) => {
-    const newOverrides = { ...manualOverrides } as ManualOverridesState;
-    delete newOverrides[printerId];
-    setManualOverrides(newOverrides);
-    // Mark as using agent values
-    setAgentPrinters(printers =>
-      printers.map(printer =>
-        printer.id === printerId
-          ? { ...printer, usingAgentValues: true }
-          : printer
-      )
-    );
-  };
-
-  const togglePrinter = (printerId: string) => {
-    setAgentPrinters(printers =>
-      printers.map(printer =>
-        printer.id === printerId
-          ? { ...printer, isEnabled: !printer.isEnabled }
-          : printer
-      )
-    );
-  };
-
-  const getDisplayValues = (printer: PrinterType) => {
-    const override = manualOverrides[printer.id] as ManualOverrideType | undefined;
-    if (printer.usingAgentValues || !override) {
-      // For printers without overrides, set colorMode based on colorSupport
-      const capabilities = {
-        ...printer.capabilities,
-        colorMode: printer.capabilities.colorMode || (printer.capabilities.colorSupport ? 'color' : 'bw')
-      };
-      
-      return {
-        name: printer.name,
-        model: printer.model,
-        type: printer.type,
-        capabilities,
-        notes: '',
-        isOverridden: false
-      };
-    }
-    
-    // For overridden printers, ensure colorMode is set
-    const capabilities = {
-      ...override.capabilities,
-      colorMode: override.capabilities.colorMode || (override.capabilities.colorSupport ? 'color' : 'bw')
+    setIsEditing(false);
+    const manualCap = printer.manualOverride?.capabilities?.[0];
+    const agentCap = printer.agentDetected?.capabilities?.[0];
+    const rawType = manualCap?.type || agentCap?.type || '';
+    const normalizeToToken = (t: string): string => {
+      const u = (t || '').toLowerCase();
+      if (u === 'color+b/w' || u === 'color+bw' || u === 'color_bw' || u === 'color-bw') return 'color+bw';
+      if (u === 'color') return 'color';
+      if (u === 'b/w' || u === 'bw' || u === 'blackwhite') return 'bw';
+      return '';
     };
-    
-    return {
-      name: override.name,
-      model: override.model,
-      type: override.type,
-      capabilities,
-      notes: override.notes,
-      isOverridden: true
-    };
-  };
-
-  // Format date to a readable string
-  const formatTime = (date: Date) => {
-    return date.toLocaleString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
+    const typeToken = normalizeToToken(rawType);
+    setEditForm({
+      name: printer.manualOverride?.name || printer.agentDetected?.name || '',
+      type: rawType, // retain original for reference (not used directly in select)
+      capabilities: {
+        type: typeToken, // select binds to normalized token
+        duplex: (manualCap?.duplex ?? agentCap?.duplex) ?? false,
+        paperSizes: manualCap?.paperSizes || agentCap?.paperSizes || []
+      },
+      notes: printer.manualOverride?.notes || ''
     });
   };
+
+  const startEdit = () => {
+    setIsEditing(true);
+  };
+
+  const saveManualOverride = async () => {
+    if (!selectedPrinter) return;
+    try {
+      // Map normalized token back to stored canonical title-case
+      const token = editForm.capabilities.type;
+      const canonicalType = token === 'bw' ? 'B/W' : (token === 'color' ? 'Color' : token === 'color+bw' ? 'Color+B/W' : '');
+      await axios.patch(`http://localhost:5000/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}`, {
+        manualOverride: {
+          name: editForm.name,
+          notes: editForm.notes,
+          capabilities: [{
+            type: canonicalType,
+            duplex: editForm.capabilities.duplex,
+            paperSizes: editForm.capabilities.paperSizes
+          }]
+        }
+      });
+      setIsEditing(false);
+      // Refresh printers list
+      const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
+      setPrinters(response.data);
+    } catch (error) {
+      console.error('Error updating manual override:', error);
+    }
+  };
+
+  // refresh handled inline where needed
+
+  // Helper to format timestamps nicely
+  const formatTime = (timestamp?: string | Date) => {
+    if (!timestamp) return "N/A";
+    const date = new Date(timestamp);
+    return date.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  // Precompute agent section values for modal to avoid JSX IIFE and ensure a single parent node
+  const modalCap = selectedPrinter?.manualOverride?.capabilities?.[0]
+    || selectedPrinter?.agentDetected?.capabilities?.[0]
+    || {};
+  const modalColorMode = modalCap?.type === 'Color+B/W'
+    ? 'color+bw'
+    : (modalCap?.type === 'Color' ? 'color' : 'bw');
+  const modalDuplex = !!modalCap?.duplex;
+  const modalPaperSizes: string[] = modalCap?.paperSizes || [];
+  const agentNameModal = selectedPrinter?.agentDetected?.name
+    || selectedPrinter?.manualOverride?.name
+    || selectedPrinter?.printerid;
 
   return (
     <PartnerLayout>
@@ -351,11 +184,22 @@ const PrinterSettings = () => {
           className="flex flex-col items-center w-full"
         >
           <div className="flex flex-col items-center w-full space-y-6 pb-4">
-            {agentPrinters.map((printer) => {
-              const displayValues = getDisplayValues(printer);
+            {printers.map(printer => {
+              // Map backend capabilities to UI expectations
+              const cap = (printer.manualOverride?.capabilities?.[0]) || (printer.agentDetected?.capabilities?.[0]) || {};
+              const colorMode = cap.type === 'Color+B/W' ? 'color+bw' : (cap.type === 'Color' ? 'color' : 'bw');
+              const capabilities = {
+                colorSupport: colorMode !== 'bw',
+                colorMode,
+                duplexSupport: !!cap.duplex,
+                paperSizes: cap.paperSizes || [],
+                maxCopies: 0,
+              };
+              const displayName = (printer.manualOverride?.name || printer.agentDetected?.name || printer.printerid || 'Printer');
+              // Use capabilities.duplexSupport, capabilities.paperSizes, etc. with safe checks
               return (
                 <motion.div
-                  key={printer.id}
+              key={printer.printerid || printer.agentDetected?.name || displayName}
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ duration: 0.4 }}
@@ -370,8 +214,7 @@ const PrinterSettings = () => {
                           <Printer className="h-6 w-6 text-white" />
                         </div>
                         <div>
-                          <h3 className="font-bold text-gray-900 text-lg">{displayValues.name}</h3>
-                          <p className="text-sm text-gray-600">{displayValues.model}</p>
+                          <h3 className="font-bold text-gray-900 text-lg">{displayName}</h3>
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
@@ -389,10 +232,7 @@ const PrinterSettings = () => {
                         </div>
                         {/* On/Off Toggle Switch */}
                         <div 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            togglePrinter(printer.id);
-                          }}
+                          onClick={(e) => toggleManualStatus(printer, e)}
                           className="relative inline-flex items-center cursor-pointer"
                           title={printer.isEnabled ? 'Disable Printer' : 'Enable Printer'}
                         >
@@ -414,31 +254,31 @@ const PrinterSettings = () => {
                     {/* Capability Badges */}
                     <div className="flex flex-wrap gap-2 mb-4">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                        displayValues.capabilities.colorMode === 'color+bw' 
+                        colorMode === 'color+bw' 
                           ? 'bg-indigo-100 text-indigo-800'
-                          : displayValues.capabilities.colorSupport 
+                          : capabilities.colorSupport 
                             ? 'bg-purple-100 text-purple-800' 
                             : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {displayValues.capabilities.colorMode === 'color+bw' ? (
+                        {colorMode === 'color+bw' ? (
                           <Palette className="h-3 w-3 mr-1" />
-                        ) : displayValues.capabilities.colorSupport ? (
+                        ) : capabilities.colorSupport ? (
                           <Palette className="h-3 w-3 mr-1" />
                         ) : (
                           <Monitor className="h-3 w-3 mr-1" />
                         )}
-                        {displayValues.capabilities.colorMode === 'color+bw' ? 'Color+B/W' : displayValues.capabilities.colorSupport ? 'Color' : 'B/W'}
+                        {colorMode === 'color+bw' ? 'Color+B/W' : capabilities.colorSupport ? 'Color' : 'B/W'}
                       </span>
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                        displayValues.capabilities.duplexSupport 
+                        capabilities.duplexSupport 
                           ? 'bg-blue-100 text-blue-800' 
                           : 'bg-gray-100 text-gray-800'
                       }`}>
                         <FileText className="h-3 w-3 mr-1" />
-                        {displayValues.capabilities.duplexSupport ? 'Duplex' : 'Single-side'}
+                        {capabilities.duplexSupport ? 'Duplex' : 'Single-side'}
                       </span>
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                        {displayValues.capabilities.paperSizes.join(', ')}
+                        {(capabilities.paperSizes || []).join(', ')}
                       </span>
                     </div>
                     {/* Printer Status Indicator */}
@@ -475,7 +315,7 @@ const PrinterSettings = () => {
                     </div>
                     {/* Metadata */}
                     <div className="text-xs text-gray-500 space-y-1 p-3 bg-gray-50/50 rounded-lg backdrop-blur-sm">
-                      <div>Detected: {formatTime(printer.metadata.detectedAt)}</div>
+                      <div>Last Update: {formatTime(printer.lastUpdate)}</div>
                     </div>
                   </div>
                 </motion.div>
@@ -508,7 +348,7 @@ const PrinterSettings = () => {
                         <Printer className="h-6 w-6 text-white" />
                       </div>
                       <div>
-                        <h3 className="text-2xl font-bold text-gray-800">{selectedPrinter?.name}</h3>
+                        <h3 className="text-2xl font-bold text-gray-800">{selectedPrinter?.manualOverride?.name || selectedPrinter?.agentDetected?.name || selectedPrinter?.printerid}</h3>
                         <div className="flex items-center space-x-2 mt-1">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
                             ${selectedPrinter?.status === 'online' 
@@ -520,36 +360,6 @@ const PrinterSettings = () => {
                               <><WifiOff className="h-3 w-3 mr-1" />Offline</>
                             )}
                           </span>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                            {selectedPrinter?.model}
-                          </span>
-                          
-                          {/* Enable/Disable Toggle in Modal */}
-                          <div className="ml-2 flex items-center space-x-2">
-                            <span className={`text-xs ${selectedPrinter?.isEnabled ? 'text-green-600' : 'text-red-600'}`}>
-                              {selectedPrinter?.isEnabled ? 'Enabled' : 'Disabled'}
-                            </span>
-                            <div 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                selectedPrinter && togglePrinter(selectedPrinter.id);
-                              }}
-                              className="relative inline-flex items-center cursor-pointer"
-                            >
-                              <input 
-                                type="checkbox" 
-                                checked={selectedPrinter?.isEnabled || false} 
-                                readOnly
-                                className="sr-only peer" 
-                              />
-                              <div className={`w-9 h-5 bg-red-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 
-                                rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full 
-                                peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] 
-                                after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 
-                                after:transition-all peer-checked:bg-green-500 shadow-inner transition-colors duration-200`}>
-                              </div>
-                            </div>
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -571,7 +381,10 @@ const PrinterSettings = () => {
                           <h4 className="text-xl font-bold text-gray-900">Manual Override</h4>
                           <p className="text-sm text-gray-500">Customize printer settings</p>
                         </div>
-                        <button className="flex items-center space-x-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg">
+                        <button 
+                          onClick={startEdit}
+                          className="flex items-center space-x-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
+                        >
                           <Edit3 className="h-4 w-4" />
                           <span>Edit</span>
                         </button>
@@ -585,6 +398,7 @@ const PrinterSettings = () => {
                               value={editForm.name}
                               onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                               className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                              readOnly={!isEditing}
                             />
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                               <Printer className="h-5 w-5 text-gray-400" />
@@ -596,25 +410,20 @@ const PrinterSettings = () => {
                           </p>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Model</label>
-                          <input
-                            type="text"
-                            value={editForm.model}
-                            onChange={(e) => setEditForm({ ...editForm, model: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-                          />
-                          <p className="text-xs text-blue-600 mt-1.5 flex items-center">
-                            <Info className="h-3 w-3 mr-1" />
-                            Using agent-detected value
-                          </p>
-                        </div>
-                        <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1.5">Capability Type</label>
                           <div className="relative">
                             <select
-                              value={editForm.colorMode}
-                              onChange={(e) => setEditForm({ ...editForm, colorMode: e.target.value as 'bw' | 'color' | 'color+bw', colorSupport: e.target.value !== 'bw' })}
+                              value={editForm.capabilities.type}
+                              onChange={(e) => setEditForm({ 
+                                ...editForm, 
+                                capabilities: { 
+                                  ...editForm.capabilities, 
+                                  type: e.target.value, 
+                                  duplex: e.target.value !== 'bw' 
+                                } 
+                              })}
                               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm appearance-none"
+                              disabled={!isEditing}
                             >
                               <option value="bw" className="bg-white text-gray-700 py-2 hover:bg-gray-100">B/W</option>
                               <option value="color" className="bg-white text-purple-700 py-2 hover:bg-purple-50">Color</option>
@@ -625,7 +434,7 @@ const PrinterSettings = () => {
                                 <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                               </svg>
                             </div>
-                            {editForm.colorMode === 'color+bw' && (
+                            {editForm.capabilities.type === 'color+bw' && (
                               <p className="text-xs text-gray-500 mt-1 ml-1">Allows printing on both sides of paper</p>
                             )}
                           </div>
@@ -637,12 +446,19 @@ const PrinterSettings = () => {
                               <div className="relative">
                                 <input
                                   type="checkbox"
-                                  checked={editForm.duplexSupport}
-                                  onChange={(e) => setEditForm({ ...editForm, duplexSupport: e.target.checked })}
+                                  checked={editForm.capabilities.duplex}
+                                  onChange={(e) => setEditForm({ 
+                                    ...editForm, 
+                                    capabilities: { 
+                                      ...editForm.capabilities, 
+                                      duplex: e.target.checked 
+                                    } 
+                                  })}
                                   className="opacity-0 absolute h-6 w-6"
+                                  disabled={!isEditing}
                                 />
-                                <div className={`border-2 rounded w-6 h-6 flex flex-shrink-0 justify-center items-center mr-2 ${editForm.duplexSupport ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}>
-                                  {editForm.duplexSupport && <Check className="h-4 w-4 text-white" />}
+                                <div className={`border-2 rounded w-6 h-6 flex flex-shrink-0 justify-center items-center mr-2 ${editForm.capabilities.duplex ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}>
+                                  {editForm.capabilities.duplex && <Check className="h-4 w-4 text-white" />}
                                 </div>
                               </div>
                               <div>
@@ -661,18 +477,22 @@ const PrinterSettings = () => {
                                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm appearance-none"
                                   value=""
                                   onChange={(e) => {
-                                    if (e.target.value && !editForm.paperSizes.includes(e.target.value)) {
+                                    if (e.target.value && !editForm.capabilities.paperSizes.includes(e.target.value)) {
                                       setEditForm({ 
                                         ...editForm, 
-                                        paperSizes: [...editForm.paperSizes, e.target.value]
+                                        capabilities: { 
+                                          ...editForm.capabilities, 
+                                          paperSizes: [...editForm.capabilities.paperSizes, e.target.value]
+                                        } 
                                       });
                                     }
                                     e.target.value = "";
                                   }}
+                                  disabled={!isEditing}
                                 >
                                   <option value="" disabled className="text-gray-500">Add paper size...</option>
                                   {['A4', 'A3', 'A5', 'Letter', 'Legal', 'Photo', 'Custom'].filter(
-                                    size => !editForm.paperSizes.includes(size)
+                                    size => !editForm.capabilities.paperSizes.includes(size)
                                   ).map(size => (
                                     <option key={size} value={size} className="bg-white text-gray-700 py-1">{size}</option>
                                   ))}
@@ -686,14 +506,17 @@ const PrinterSettings = () => {
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-2 mt-2">
-                            {editForm.paperSizes.map((size, i) => (
-                              <span key={i} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                            {(editForm.capabilities.paperSizes || []).map((size, i) => (
+                          <span key={size} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
                                 {size}
                                 <button
                                   type="button"
                                   onClick={() => setEditForm({
                                     ...editForm,
-                                    paperSizes: editForm.paperSizes.filter((_, index) => index !== i)
+                                    capabilities: {
+                                      ...editForm.capabilities,
+                                      paperSizes: editForm.capabilities.paperSizes.filter((_, index) => index !== i)
+                                    }
                                   })}
                                   className="ml-1.5 h-4 w-4 inline-flex items-center justify-center text-blue-400 hover:text-blue-600"
                                 >
@@ -719,10 +542,7 @@ const PrinterSettings = () => {
                               {selectedPrinter?.isEnabled ? 'Printer Enabled' : 'Printer Disabled'}
                             </span>
                             <div 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                selectedPrinter && togglePrinter(selectedPrinter.id);
-                              }}
+                              onClick={(e) => toggleManualStatus(selectedPrinter, e)}
                               className="relative inline-flex items-center cursor-pointer"
                             >
                               <input 
@@ -750,18 +570,8 @@ const PrinterSettings = () => {
                           <div className="px-4 py-3 bg-white rounded-lg border border-green-200 shadow-sm">
                             <div className="flex items-center">
                               <Printer className="h-4 w-4 text-green-500 mr-2" />
-                              <p className="text-green-800 font-medium">{selectedPrinter?.name}</p>
+                              <p className="text-green-800 font-medium">{agentNameModal}</p>
                             </div>
-                          </div>
-                          <p className="text-xs text-green-600 mt-1.5 flex items-center">
-                            <Check className="h-3 w-3 mr-1" />
-                            Auto-detected by agent
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-green-700 mb-1.5">Model</label>
-                          <div className="px-4 py-3 bg-white rounded-lg border border-green-200 shadow-sm">
-                            <p className="text-green-800 font-medium">{selectedPrinter?.model}</p>
                           </div>
                           <p className="text-xs text-green-600 mt-1.5 flex items-center">
                             <Check className="h-3 w-3 mr-1" />
@@ -772,20 +582,15 @@ const PrinterSettings = () => {
                           <label className="block text-sm font-medium text-green-700 mb-1.5">Capability Type</label>
                           <div className="px-4 py-3 bg-white rounded-lg border border-green-200 shadow-sm">
                             <div className="flex items-center">
-                              {selectedPrinter?.capabilities.colorMode === 'color+bw' ? (
+                              {modalColorMode === 'color+bw' ? (
                                 <Palette className="h-4 w-4 text-indigo-500 mr-2" />
-                              ) : selectedPrinter?.capabilities.colorSupport ? (
+                              ) : (modalColorMode !== 'bw') ? (
                                 <Palette className="h-4 w-4 text-purple-500 mr-2" />
                               ) : (
                                 <Monitor className="h-4 w-4 text-gray-500 mr-2" />
                               )}
                               <p className="text-green-800 font-medium">
-                                {selectedPrinter?.capabilities.colorMode === 'color+bw' 
-                                  ? 'Color+B/W' 
-                                  : selectedPrinter?.capabilities.colorSupport 
-                                    ? 'Color' 
-                                    : 'B/W'
-                                }
+                                {modalColorMode === 'color+bw' ? 'Color+B/W' : (modalColorMode !== 'bw') ? 'Color' : 'B/W'}
                               </p>
                             </div>
                           </div>
@@ -796,7 +601,7 @@ const PrinterSettings = () => {
                             <div className="flex items-center">
                               <FileText className="h-4 w-4 text-blue-500 mr-2" />
                               <p className="text-green-800 font-medium">
-                                {selectedPrinter?.capabilities.duplexSupport ? 'Yes' : 'No'}
+                                {modalDuplex ? 'Yes' : 'No'}
                               </p>
                             </div>
                           </div>
@@ -804,11 +609,11 @@ const PrinterSettings = () => {
                         <div>
                           <label className="block text-sm font-medium text-green-700 mb-1.5">Paper Sizes</label>
                           <div className="px-4 py-3 bg-white rounded-lg border border-green-200 shadow-sm">
-                            <p className="text-green-800 font-medium">{selectedPrinter?.capabilities.paperSizes.join(', ')}</p>
+                            <p className="text-green-800 font-medium">{modalPaperSizes.join(', ')}</p>
                           </div>
                           <div className="flex flex-wrap gap-2 mt-2">
-                            {selectedPrinter?.capabilities.paperSizes.map((size, i) => (
-                              <span key={i} className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-green-50 text-green-700 border border-green-100">
+                            {(modalPaperSizes || []).map((size: string) => (
+                              <span key={size} className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-green-50 text-green-700 border border-green-100">
                                 {size}
                               </span>
                             ))}
@@ -821,27 +626,29 @@ const PrinterSettings = () => {
                   {/* Enhanced Modal Actions */}
                   <div className="flex justify-between items-center p-6 border-t border-gray-100 bg-gray-50/90 rounded-b-2xl backdrop-blur-sm sticky bottom-0 z-10 shadow-md">
                     <button
-                      onClick={() => selectedPrinter && useAgentValues(selectedPrinter.id)}
-                      className="flex items-center space-x-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-xl hover:shadow-2xl transform hover:-translate-y-0.5"
+                      onClick={saveManualOverride}
+                      className="flex items-center space-x-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-2.5 rounded-xl font-medium hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 shadow-xl hover:shadow-2xl transform hover:-translate-y-0.5"
                     >
-                      <Check className="h-5 w-5" />
-                      <span>Use Agent Values</span>
+                      <Save className="h-5 w-5" />
+                      <span>Save Override</span>
                     </button>
-                    <div className="flex space-x-3">
+                    {selectedPrinter && (
                       <button
-                        onClick={() => setSelectedPrinter(null)}
-                        className="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                        onClick={async () => {
+                          try {
+                            await axios.post(`http://localhost:5000/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}/sync`);
+                            const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
+                            setPrinters(response.data);
+                          } catch (e) {
+                            console.error('Forced sync failed', e);
+                          }
+                        }}
+                        className="flex items-center space-x-2 bg-white text-gray-700 px-5 py-2.5 rounded-xl font-medium border border-gray-200 hover:bg-gray-50 transition-all duration-200"
                       >
-                        Cancel
+                        <RefreshCw className="h-5 w-5" />
+                        <span>Force Sync</span>
                       </button>
-                      <button
-                        onClick={saveManualOverride}
-                        className="flex items-center space-x-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-2.5 rounded-xl font-medium hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 shadow-xl hover:shadow-2xl transform hover:-translate-y-0.5"
-                      >
-                        <Save className="h-5 w-5" />
-                        <span>Save Override</span>
-                      </button>
-                    </div>
+                    )}
                   </div>
                   </div>
                 </motion.div>

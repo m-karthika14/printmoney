@@ -2,33 +2,63 @@ const Job = require('./models/Job');
 const FinalJob = require('./models/FinalJob');
 const NewShop = require('./models/NewShop');
 
-async function pollJobsAndAssignPrinters() {
+function jobRequiresColor(printOptions) {
+  const pt = (printOptions?.printType || '').toString().toLowerCase();
+  return pt === 'color' || pt === 'colour';
+}
+
+function jobRequiresDuplex(printOptions) {
+  const dp = (printOptions?.duplex || '').toString().toLowerCase();
+  return dp === 'double' || dp === 'duplex';
+}
+
+function matchesPrinter(job, printer) {
+  if (!printer || printer.status !== 'online') return false;
+  if (printer.manualStatus === 'off') return false; // respect shopkeeper toggle
+  const source = printer.useAgentValues ? printer.agentDetected : printer.manualOverride;
+  if (!source || !Array.isArray(source.capabilities) || source.capabilities.length === 0) return false;
+  const caps = source.capabilities[0] || {};
+  const needColor = jobRequiresColor(job.print_options || {});
+  const needDuplex = jobRequiresDuplex(job.print_options || {});
+  const requiredSize = job.print_options?.paperSize;
+  const typeOk = needColor ? (caps.type === 'Color' || caps.type === 'Color+B/W') : true;
+  const duplexOk = needDuplex ? !!caps.duplex : true;
+  const sizeOk = requiredSize ? (Array.isArray(caps.paperSizes) && caps.paperSizes.includes(requiredSize)) : true;
+  return typeOk && duplexOk && sizeOk;
+}
+
+async function pollJobsAndAssignPrinters(shopIdFilter) {
   console.log('[JobPoller] Polling jobs collection for pending jobs...');
-  const pendingJobs = await Job.find({ job_status: 'pending' });
+  const query = { printer_status: 'pending' };
+  if (shopIdFilter) query.shop_id = shopIdFilter;
+  const pendingJobs = await Job.find(query);
   console.log(`[JobPoller] Found ${pendingJobs.length} pending jobs.`);
   for (const job of pendingJobs) {
-    // Check if job already assigned in finalJobs (by job_number)
-    const alreadyAssigned = await FinalJob.findOne({ job_number: job.job_number });
-    if (alreadyAssigned) {
-      console.log(`[JobPoller] Job ${job.job_number} already assigned, skipping.`);
+    // Idempotency: if already in finaljobs, skip (by job_number)
+    const exists = await FinalJob.findOne({ job_number: job.job_number });
+    if (exists) {
+      console.log(`[JobPoller] Job ${job.job_number} already present in finaljobs, marking alloted and skipping.`);
+      await Job.updateOne({ _id: job._id }, { $set: { printer_status: 'alloted' } });
       continue;
     }
 
     const shop = await NewShop.findOne({ shopId: job.shop_id });
-    if (!shop || !shop.printers || shop.printers.length === 0) {
-      console.log(`[JobPoller] No shop or printers found for job ${job.job_number}, skipping.`);
+    if (!shop || !Array.isArray(shop.printers) || shop.printers.length === 0) {
+      console.log(`[JobPoller] No printers for shop ${job.shop_id} — skip job ${job.job_number}.`);
       continue;
     }
 
-    // Find an available printer (customize as needed)
-    const availablePrinter = shop.printers.find(p => p.status === 'online');
-    if (!availablePrinter) {
-      console.log(`[JobPoller] No available printer for job ${job.job_number}, skipping.`);
+    const candidates = shop.printers.filter(p => matchesPrinter(job, p));
+    if (candidates.length === 0) {
+      console.warn(`[JobPoller] No compatible printer for job ${job.job_number} in shop ${job.shop_id}.`);
       continue;
     }
 
-    // Allot job: create finalJob with every field from Job
-    const finalJobData = {
+    const selected = candidates[0]; // simple selection; can improve later
+    const finalSource = selected.useAgentValues ? selected.agentDetected : selected.manualOverride;
+    const assignedName = finalSource?.name || selected.agentDetected?.name || 'Unknown Printer';
+
+    const upsertData = {
       job_number: job.job_number,
       customer: job.customer,
       shop: job.shop,
@@ -37,38 +67,43 @@ async function pollJobsAndAssignPrinters() {
       print_options: job.print_options,
       total_amount: job.total_amount,
       payment_status: job.payment_status,
-      job_status: 'alloted',
+      job_status: 'pending', // lifecycle state before printing
+      printer_status: 'alloted',
       collection_pin: job.collection_pin,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt,
       queued_at: job.queued_at,
+      processing_started_at: job.processing_started_at,
+      printing_started_at: job.printing_started_at,
+      completed_at: job.completed_at,
+      printer_assigned_at: new Date(),
+      assigned_printer: assignedName,
+      printerid: selected.printerid,
+      printer_config: finalSource,
+      agent_id: job.agent_id,
       status: job.status,
       files_processed: job.files_processed,
       pages_printed: job.pages_printed,
-      agent_id: job.agent_id,
-      processing_started_at: job.processing_started_at,
-      assigned_printer: availablePrinter.printerId || availablePrinter.agentDetected?.name,
-      printer_assigned_at: new Date(),
       current_file: job.current_file,
-      printing_started_at: job.printing_started_at,
-      completed_at: job.completed_at,
-      printed_by: availablePrinter.printerId || availablePrinter.agentDetected?.name,
+      printed_by: assignedName,
       processing_time_seconds: job.processing_started_at && job.completed_at ? Math.round((job.completed_at - job.processing_started_at) / 1000) : undefined,
       queue_confirmed: true,
       manualTriggered: false,
-      autoPrintMode: !!shop.autoPrintMode
+      autoPrintMode: !!shop.autoPrintMode,
+      createdAt: job.createdAt || new Date(),
+      updatedAt: new Date(),
     };
-    const finalJob = new FinalJob(finalJobData);
-    await finalJob.save();
-    console.log(`[JobPoller] Allotted job ${job.job_number} to printer ${finalJob.assigned_printer} and created finalJob ${finalJob._id}.`);
 
-    // Update original job status and assigned_printer
-    job.job_status = 'assigned';
-    job.assigned_printer = finalJob.assigned_printer;
-    job.printer_assigned_at = finalJob.printer_assigned_at;
-    job.updatedAt = new Date();
-    await job.save();
-    console.log(`[JobPoller] Updated job ${job.job_number} status to assigned and synced printer info.`);
+    // Upsert to finaljobs keyed by job_number
+    const res = await FinalJob.updateOne(
+      { job_number: job.job_number },
+      { $set: upsertData },
+      { upsert: true }
+    );
+    // Update job with printer_status and keep job_status pending
+    await Job.updateOne(
+      { _id: job._id },
+      { $set: { printer_status: 'alloted', job_status: 'pending', assigned_printer: assignedName, printer_assigned_at: new Date() } }
+    );
+    console.log(`[JOB-ALLOC] ShopId: ${job.shop_id}, Job: ${job.job_number}, Printer: ${assignedName}, Mode: ${!!shop.autoPrintMode ? 'Auto' : 'Manual'}`);
   }
 }
 

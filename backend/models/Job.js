@@ -9,7 +9,9 @@ const JobSchema = new mongoose.Schema(
     print_options: { type: Object, default: {} },
     total_amount: { type: Number },
     payment_status: { type: String, default: "pending" },
-    job_status: { type: String },
+    // Printer allocation pipeline status (pending -> alloted)
+    printer_status: { type: String, default: 'pending' },
+  job_status: { type: String, default: 'pending' },
     job_number: { type: String },
     collection_pin: { type: String },
     createdAt: { type: Date },
