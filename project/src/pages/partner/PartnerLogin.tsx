@@ -34,8 +34,18 @@ const PartnerLogin = () => {
       }
       // Login successful, redirect to dashboard
       localStorage.setItem('registeredShopEmail', data.shop.email);
-      localStorage.setItem('shopId', data.shop._id);
-      console.log('Set shopId:', data.shop._id);
+          // Store canonical shop_id for all shop-scoped APIs
+          if (data.shop.shop_id || data.shop.shopId) {
+            const sid = data.shop.shop_id || data.shop.shopId;
+            localStorage.setItem('shop_id', sid);
+            // Clean legacy key to enforce canonical usage
+            try { localStorage.removeItem('shopId'); } catch {}
+          }
+      // Also store Mongo _id separately for screens that still use it
+          if (data.shop._id) {
+            localStorage.setItem('shop_object_id', data.shop._id);
+          }
+      console.log('Set shopId (canonical):', data.shop.shopId, 'shopObjectId:', data.shop._id);
       navigate('/dashboard');
     } catch (err) {
       setLoginError('Login failed. Please try again.');

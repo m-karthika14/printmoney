@@ -3,11 +3,25 @@ import { motion } from 'framer-motion';
 import { Printer, CreditCard as Edit3, Save, Info, Wifi, WifiOff, Monitor, Palette, FileText, Check, X, RefreshCw } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
 import axios from 'axios';
-
-const shopId = 'T47439k'; // TODO: Replace with dynamic shopId if needed
+ 
+// Resolve canonical shop id from query/localStorage
+const resolveShopId = (): string => {
+  try {
+    const url = new URL(window.location.href);
+    const qs = url.searchParams.get('shop_id') || url.searchParams.get('shopId');
+    const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId');
+    const HEX24 = /^[a-fA-F0-9]{24}$/;
+    const candidate = qs || stored || '';
+    if (!candidate) return '';
+    return HEX24.test(candidate) ? '' : candidate; // ignore Mongo ObjectId
+  } catch {
+    return '';
+  }
+};
 
 const PrinterSettings = () => {
   const [printers, setPrinters] = useState<PrinterType[]>([]);
+  const [shopId, setShopId] = useState<string>('');
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterType | null>(null);
   const [editForm, setEditForm] = useState<EditFormType>({
     name: '',
@@ -37,14 +51,19 @@ const PrinterSettings = () => {
   };
 
   useEffect(() => {
+    // initialize shop id
+    const sid = resolveShopId();
+    if (sid) setShopId(sid);
+
     // Fetch printers from backend
     const fetchPrinters = async () => {
       try {
+        if (!shopId) return;
         const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
         // Add isEnabled derived from manualStatus (on/off)
         const normalized = (response.data || []).map((p: any) => ({
           ...p,
-          isEnabled: p.manualStatus !== 'off'
+          isEnabled: (p.manualStatus || 'on') === 'on'
         }));
         setPrinters(normalized);
       } catch (error) {
@@ -53,7 +72,9 @@ const PrinterSettings = () => {
     };
 
     fetchPrinters();
-  }, []);
+    const interval = setInterval(fetchPrinters, 5000);
+    return () => clearInterval(interval);
+  }, [shopId]);
 
   // Toggle manualStatus on/off for a specific printer (card & modal)
   const toggleManualStatus = async (printer: any, e?: React.MouseEvent) => {
@@ -68,6 +89,7 @@ const PrinterSettings = () => {
     }
     try {
       const pid = encodeURIComponent(printer.printerid || printer.printerId);
+      if (!shopId) return;
       await axios.patch(`http://localhost:5000/api/shops/${shopId}/printers/${pid}/manualStatus`, { manualStatus: newStatus });
     } catch (err) {
       console.error('Failed to toggle manualStatus', err);
@@ -115,6 +137,7 @@ const PrinterSettings = () => {
       // Map normalized token back to stored canonical title-case
       const token = editForm.capabilities.type;
       const canonicalType = token === 'bw' ? 'B/W' : (token === 'color' ? 'Color' : token === 'color+bw' ? 'Color+B/W' : '');
+      if (!shopId) return;
       await axios.patch(`http://localhost:5000/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}`, {
         manualOverride: {
           name: editForm.name,
@@ -232,7 +255,10 @@ const PrinterSettings = () => {
                         </div>
                         {/* On/Off Toggle Switch */}
                         <div 
-                          onClick={(e) => toggleManualStatus(printer, e)}
+                          onClick={(e) => {
+                            if (printer.manualStatus === 'pending_off') return; // disabled while pending
+                            toggleManualStatus(printer, e);
+                          }}
                           className="relative inline-flex items-center cursor-pointer"
                           title={printer.isEnabled ? 'Disable Printer' : 'Enable Printer'}
                         >
@@ -242,11 +268,11 @@ const PrinterSettings = () => {
                             readOnly
                             className="sr-only peer" 
                           />
-                          <div className={`w-11 h-6 bg-red-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 
+                          <div className={`w-11 h-6 ${printer.manualStatus === 'pending_off' ? 'bg-orange-400' : (printer.isEnabled ? 'bg-green-600' : 'bg-red-500')} peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 
                             rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full 
                             peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] 
                             after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 
-                            after:transition-all peer-checked:bg-green-600 shadow-inner transition-colors duration-200`}>
+                            after:transition-all shadow-inner transition-colors duration-200`}>
                           </div>
                         </div>
                       </div>
@@ -538,11 +564,14 @@ const PrinterSettings = () => {
                         </div>
                         <div className="flex flex-col items-end">
                           <div className="flex items-center space-x-3 mb-2">
-                            <span className={`text-sm font-medium ${selectedPrinter?.isEnabled ? 'text-green-700' : 'text-red-700'}`}>
-                              {selectedPrinter?.isEnabled ? 'Printer Enabled' : 'Printer Disabled'}
+                            <span className={`text-sm font-medium ${selectedPrinter?.manualStatus === 'pending_off' ? 'text-orange-700' : (selectedPrinter?.isEnabled ? 'text-green-700' : 'text-red-700')}`}>
+                              {selectedPrinter?.manualStatus === 'pending_off' ? 'Pending Off' : (selectedPrinter?.isEnabled ? 'Printer Enabled' : 'Printer Disabled')}
                             </span>
                             <div 
-                              onClick={(e) => toggleManualStatus(selectedPrinter, e)}
+                              onClick={(e) => {
+                                if (selectedPrinter?.manualStatus === 'pending_off') return; // disabled while pending
+                                toggleManualStatus(selectedPrinter, e);
+                              }}
                               className="relative inline-flex items-center cursor-pointer"
                             >
                               <input 
@@ -551,7 +580,7 @@ const PrinterSettings = () => {
                                 readOnly
                                 className="sr-only peer" 
                               />
-                              <div className={`w-11 h-6 bg-red-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 
+                              <div className={`w-11 h-6 ${selectedPrinter?.manualStatus === 'pending_off' ? 'bg-orange-400' : (selectedPrinter?.isEnabled ? 'bg-green-500' : 'bg-red-500')} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 
                                 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full 
                                 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] 
                                 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 
@@ -559,6 +588,9 @@ const PrinterSettings = () => {
                               </div>
                             </div>
                           </div>
+                          {selectedPrinter?.manualStatus === 'pending_off' && (
+                            <span className="text-xs text-orange-600">1 job is in queue. Turning off after completion…</span>
+                          )}
                           <span className={`text-xs px-2 py-1 rounded-full ${selectedPrinter?.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                             {selectedPrinter?.status === 'online' ? 'Online' : 'Offline'}
                           </span>
@@ -636,6 +668,7 @@ const PrinterSettings = () => {
                       <button
                         onClick={async () => {
                           try {
+                            if (!shopId) return;
                             await axios.post(`http://localhost:5000/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}/sync`);
                             const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
                             setPrinters(response.data);

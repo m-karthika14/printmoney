@@ -4,11 +4,45 @@ const NewShop = require('../models/NewShop');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { scheduledSync } = require('../utils/printerSync');
+const FinalJob = require('../models/FinalJob');
+const DailyShopStats = require('../models/DailyShopStats');
+// GET shop by canonical shop_id (new) and keep legacy (shopId) for compatibility
+router.get('/by-shop/:shop_id', async (req, res) => {
+	try {
+		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shop_id }, { shopId: req.params.shop_id }] });
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		const obj = shop.toObject();
+		delete obj.password;
+		res.json(obj);
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
+});
 
-// GET paperSizePricing for a shop
+router.get('/by-shopId/:shopId', async (req, res) => {
+	try {
+		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] });
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		const obj = shop.toObject();
+		delete obj.password;
+		res.json(obj);
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
+});
+
+// Helper: resolve by id (ObjectId) or shop_id/shopId string
+async function resolveShopByAny(idOrCode) {
+  if (!idOrCode) return null;
+  const isHex24 = /^[a-fA-F0-9]{24}$/.test(idOrCode);
+  if (isHex24) return await NewShop.findById(idOrCode);
+  return await NewShop.findOne({ $or: [{ shop_id: idOrCode }, { shopId: idOrCode }] });
+}
+
+// GET paperSizePricing for a shop (accepts Mongo _id or shop_id)
 router.get('/shop/:id/paper-size-pricing', async (req, res) => {
 	try {
-		const shop = await NewShop.findById(req.params.id);
+		const shop = await resolveShopByAny(req.params.id);
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
@@ -29,13 +63,18 @@ router.patch('/shop/:id/paper-size-pricing', async (req, res) => {
 			console.log('[PaperSizePricing] Invalid paperSizePricing data:', paperSizePricing);
 			return res.status(400).json({ message: 'Invalid paperSizePricing data' });
 		}
+		const idOrCode = req.params.id;
+		const shopRaw = await resolveShopByAny(idOrCode);
+		if (!shopRaw) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
 		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
+			shopRaw._id,
 			{ $set: { 'pricing.paperSizePricing': paperSizePricing } },
 			{ new: true, runValidators: true }
 		);
 		if (!shop) {
-			console.log('[PaperSizePricing] Shop not found for id:', req.params.id);
+			console.log('[PaperSizePricing] Shop not found for id:', idOrCode);
 			return res.status(404).json({ message: 'Shop not found' });
 		}
 		console.log('[PaperSizePricing] Updated paperSizePricing:', JSON.stringify(shop.pricing.paperSizePricing, null, 2));
@@ -50,7 +89,7 @@ router.patch('/shop/:id/paper-size-pricing', async (req, res) => {
 // GET pricing details for a shop
 router.get('/shop/:id/pricing', async (req, res) => {
     try {
-        const shop = await NewShop.findById(req.params.id);
+		const shop = await resolveShopByAny(req.params.id);
         if (!shop) {
             return res.status(404).json({ message: 'Shop not found' });
         }
@@ -61,6 +100,137 @@ router.get('/shop/:id/pricing', async (req, res) => {
     }
 });
 
+// GET /api/shops/shop/:shopId/dashboard
+router.get('/shop/:shopId/dashboard', async (req, res) => {
+	try {
+		const shopId = req.params.shopId;
+		// Resolve shop by canonical id
+		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId }] }).lean();
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+
+		const canonical = shop.shop_id || shop.shopId || shopId;
+
+		// Time boundaries (local start of today and yesterday)
+		const now = new Date();
+		const startOfToday = new Date(now); startOfToday.setHours(0,0,0,0);
+		const startOfYesterday = new Date(startOfToday); startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+		const endOfYesterday = new Date(startOfToday); endOfYesterday.setMilliseconds(-1);
+
+		// Counts
+			const [completedToday, pendingNow] = await Promise.all([
+				FinalJob.countDocuments({
+					shop_id: canonical,
+					job_status: 'completed',
+					$or: [
+						{ completed_at: { $gte: startOfToday } },
+						{ createdAt: { $gte: startOfToday } } // fallback if completed_at missing
+					]
+				}),
+				FinalJob.countDocuments({ shop_id: canonical, job_status: 'pending' })
+			]);
+
+		// Yesterday from snapshot first, else fallback to direct query
+		let yesterdayCompleted = 0;
+			const yDoc = await DailyShopStats.findOne({ shop_id: canonical, date: startOfYesterday.toISOString().slice(0,10) }).lean();
+		if (yDoc) {
+			yesterdayCompleted = yDoc.completedCount || 0;
+		} else {
+				// Fallback (may be partially purged by TTL depending on time)
+				yesterdayCompleted = await FinalJob.countDocuments({
+					shop_id: canonical,
+					job_status: 'completed',
+					$or: [
+						{ completed_at: { $gte: startOfYesterday, $lte: endOfYesterday } },
+						{ createdAt: { $gte: startOfYesterday, $lte: endOfYesterday } }
+					]
+				});
+		}
+		const changePercent = (() => {
+			if (!yesterdayCompleted) return '+0%';
+			const diff = completedToday - yesterdayCompleted;
+			const pct = Math.round((diff / Math.max(1, yesterdayCompleted)) * 100);
+			const sign = pct >= 0 ? '+' : '';
+			return `${sign}${pct}%`;
+		})();
+
+		// Printers summary + list
+		const printers = Array.isArray(shop.printers) ? shop.printers : [];
+		const totalPrinters = printers.length;
+		const onlinePrinters = printers.filter(p => (p.status || '').toLowerCase() === 'online').length;
+		const printerList = printers.map(p => ({
+			name: p.agentDetected?.name || p.printerid || p.printerId || 'Unknown',
+			type: Array.isArray(p.agentDetected?.capabilities) && p.agentDetected.capabilities[0] ? (p.agentDetected.capabilities[0].type || '') : '',
+			status: p.status || 'offline'
+		}));
+
+		// Recent jobs: prefer one per status (completed, printing, pending), else fill by latest
+		const latestByStatus = await Promise.all([
+			FinalJob.findOne({ shop_id: canonical, job_status: 'completed' }).sort({ updatedAt: -1 }).lean(),
+			FinalJob.findOne({ shop_id: canonical, job_status: 'printing' }).sort({ updatedAt: -1 }).lean(),
+			FinalJob.findOne({ shop_id: canonical, job_status: 'pending' }).sort({ updatedAt: -1 }).lean(),
+		]);
+		const picked = [];
+		const seen = new Set();
+		for (const j of latestByStatus) {
+			if (j && !seen.has(j.job_number)) { picked.push(j); seen.add(j.job_number); }
+		}
+		if (picked.length < 3) {
+			const extra = await FinalJob.find({ shop_id: canonical }).sort({ updatedAt: -1 }).limit(10).lean();
+			for (const j of extra) { if (picked.length >= 3) break; if (!seen.has(j.job_number)) { picked.push(j); seen.add(j.job_number); } }
+		}
+		const recentJobs = picked.slice(0,3).map(j => ({
+			job_number: j.job_number,
+			customer: j.customer || 'guest',
+			copies: (j.print_options && j.print_options.copies) ? j.print_options.copies : undefined,
+			total_amount: j.total_amount || 0,
+			job_status: j.job_status
+		}));
+
+		// Prefer NewShop.dailystats if present per user ask
+		const ds = shop.dailystats || {};
+		const hasDsTotal = typeof ds.totaljobscompleeted === 'number' && !Number.isNaN(ds.totaljobscompleeted);
+		const hasDsChange = typeof ds.jobpercentchaneg === 'string' && ds.jobpercentchaneg !== '';
+		// Prefer computed when it's non-zero; else fallback to dailystats if provided
+		const useComputed = completedToday > 0 || !hasDsTotal;
+		const finalTotal = useComputed ? completedToday : ds.totaljobscompleeted;
+		const finalChange = useComputed ? changePercent : (hasDsChange ? ds.jobpercentchaneg : changePercent);
+
+		// Final payload
+		res.json({
+			shopName: shop.shopName,
+			isOpen: typeof shop.isOpen === 'boolean' ? shop.isOpen : true,
+			earningsToday: 0, // dummy allowed
+			printJobsToday: { totalCompleted: finalTotal, changePercent: finalChange },
+			pendingJobs: pendingNow,
+			printers: { online: onlinePrinters, total: totalPrinters },
+			recentJobs,
+			printerList
+		});
+	} catch (err) {
+		console.error('[DASHBOARD] Error:', err);
+		res.status(500).json({ message: err.message || 'Server error' });
+	}
+});
+
+// PATCH /api/shops/:shopId/isopen
+router.patch('/:shopId/isopen', async (req, res) => {
+	try {
+		const { isOpen } = req.body || {};
+		if (typeof isOpen !== 'boolean') return res.status(400).json({ message: 'isOpen boolean is required' });
+		const shopId = req.params.shopId;
+		const shop = await NewShop.findOneAndUpdate(
+			{ $or: [{ shop_id: shopId }, { shopId }] },
+			{ $set: { isOpen } },
+			{ new: true }
+		).lean();
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		// Socket removed: frontend uses polling
+		res.json({ success: true, isOpen: shop.isOpen });
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
+});
+
 // PATCH update pricing details for a shop
 router.patch('/shop/:id/pricing', async (req, res) => {
     try {
@@ -69,8 +239,13 @@ router.patch('/shop/:id/pricing', async (req, res) => {
             return res.status(400).json({ message: 'Incomplete pricing data' });
         }
 
-        const updatedShop = await NewShop.findByIdAndUpdate(
-            req.params.id,
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+
+		const updatedShop = await NewShop.findByIdAndUpdate(
+			shopRaw._id,
             { $set: { 'pricing.bwSingle': bwSingle, 'pricing.colorSingle': colorSingle, 'pricing.bwDouble': bwDouble, 'pricing.colorDouble': colorDouble } },
             { new: true }
         );
@@ -162,8 +337,10 @@ router.patch('/:id/profile', async (req, res) => {
 			}
 		}
 
+		const base = await resolveShopByAny(req.params.id);
+		if (!base) return res.status(404).json({ message: 'Shop not found' });
 		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
+			base._id,
 			{ $set: updateFields },
 			{ new: true, runValidators: true }
 		);
@@ -262,11 +439,12 @@ router.patch('/:id/printer/:printerId', async (req, res) => {
 // GET /api/shops/:shopId/printers
 router.get('/:shopId/printers', async (req, res) => {
 	try {
-		const shop = await NewShop.findOne({ shopId: req.params.shopId }).lean({ virtuals: true });
+		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] }).lean({ virtuals: true });
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const printers = (shop.printers || []).map(p => ({
 			...p,
 			printerid: p.printerid || p.printerId || null,
+			manualStatus: p.manualStatus || 'on'
 		}));
 		res.json(printers);
 	} catch (err) {
@@ -278,7 +456,7 @@ router.get('/:shopId/printers', async (req, res) => {
 router.patch('/:shopId/printers/:printerId', async (req, res) => {
 	try {
 		const { manualOverride } = req.body || {};
-		const shop = await NewShop.findOne({ shopId: req.params.shopId });
+		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] });
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const idx = (shop.printers || []).findIndex(p => (p.printerid || p.printerId) === req.params.printerId);
 		if (idx === -1) return res.status(404).json({ message: 'Printer not found' });
@@ -306,7 +484,7 @@ router.patch('/:shopId/printers/:printerId', async (req, res) => {
 router.post('/:shopId/printers/:printerId/sync', async (req, res) => {
 	try {
 		await scheduledSync(req.params.shopId);
-		const shop = await NewShop.findOne({ shopId: req.params.shopId }).lean({ virtuals: true });
+		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] }).lean({ virtuals: true });
 		if (!shop) return res.status(404).json({ message: 'Shop not found after sync' });
 		const printer = (shop.printers || []).find(p => (p.printerid || p.printerId) === req.params.printerId);
 		if (!printer) return res.status(404).json({ message: 'Printer not found after sync' });
@@ -320,11 +498,11 @@ router.post('/:shopId/printers/:printerId/sync', async (req, res) => {
 router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 	try {
 		const { manualStatus } = req.body || {};
-		if (!['on','off'].includes(manualStatus)) {
-			return res.status(400).json({ message: 'Invalid manualStatus. Use on/off' });
+		if (!['on','off','pending_off'].includes(manualStatus)) {
+			return res.status(400).json({ message: 'Invalid manualStatus. Use on/off/pending_off' });
 		}
 		const { shopId, printerId } = req.params;
-		const shop = await NewShop.findOne({ shopId });
+		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId }] });
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found', code: 'SHOP_NOT_FOUND', shopId });
 		}
@@ -374,9 +552,25 @@ router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 				available: printers.map(p => ({ raw: p.printerid || p.printerId, norm: sanitize(p.printerid || p.printerId) }))
 			});
 		}
-		printer.manualStatus = manualStatus;
+				// If turning off and an active job exists, mark pending_off
+			let nextStatus = manualStatus;
+			if (manualStatus === 'off') {
+				const pid = printer.printerid || printer.printerId;
+					const pname = printer.agentDetected?.name;
+				const activeJob = await FinalJob.findOne({
+					shop_id: shopId,
+					$or: [
+							{ printerid: pid },
+							{ assigned_printer: pid },
+							...(pname ? [{ assigned_printer: pname }] : [])
+					],
+						job_status: { $in: ['pending', 'printing', 'alloted', 'processing'] }
+				}).lean();
+				if (activeJob) nextStatus = 'pending_off';
+			}
+			printer.manualStatus = nextStatus;
 		await shop.save();
-		res.json({ success: true, printer });
+			res.json({ success: true, printer });
 	} catch (err) {
 		res.status(500).json({ message: err.message });
 	}
@@ -399,8 +593,12 @@ router.patch('/:id/services', async (req, res) => {
 					return res.status(400).json({ message: 'Each service must have a price' });
 				}
 			}
+			const shopRaw = await resolveShopByAny(req.params.id);
+			if (!shopRaw) {
+				return res.status(404).json({ message: 'Shop not found' });
+			}
 			const shop = await NewShop.findByIdAndUpdate(
-				req.params.id,
+				shopRaw._id,
 				{ services },
 				{ new: true, runValidators: true }
 			);
@@ -460,7 +658,7 @@ router.get('/', async (req, res) => {
 // ...existing code...
 router.get('/:id', async (req, res) => {
 	try {
-		const shop = await NewShop.findById(req.params.id);
+		const shop = await resolveShopByAny(req.params.id);
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
@@ -512,8 +710,10 @@ router.post('/', async (req, res) => {
 // PUT update newshop
 router.put('/:id', async (req, res) => {
 	try {
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) return res.status(404).json({ message: 'Shop not found' });
 		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
+			shopRaw._id,
 			req.body,
 			{ new: true, runValidators: true }
 		);
@@ -570,3 +770,5 @@ router.use((err, req, res, next) => {
 });
 
 module.exports = router;
+/** DASHBOARD ROUTES BELOW **/
+

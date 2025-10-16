@@ -8,11 +8,12 @@ const Job = require('../models/Job');
 // Mark a job as alloted (printer_status) and ensure presence in FinalJobs
 router.post('/assign', async (req, res) => {
   try {
-    const { job_number, shop_id, printerid, assigned_printer } = req.body;
+    let { job_number, shop_id, printerid, assigned_printer } = req.body;
     if (!job_number || !shop_id || !printerid) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
-    const shop = await NewShop.findOne({ shopId: shop_id });
+    // Require canonical shopId form for consistency
+  const shop = await NewShop.findOne({ $or: [{ shop_id: shop_id }, { shopId: shop_id }] });
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
     const autoPrintMode = !!shop.autoPrintMode;
 
@@ -133,10 +134,86 @@ router.patch('/:id/status', async (req, res) => {
 
     // Mirror status to Jobs (by job_number)
     await Job.updateOne({ job_number: job.job_number }, { $set: { job_status } });
-    res.json(job);
+
+    // If the job completed and the printer was pending_off, flip it to off now
+    if (job_status === 'completed' && job.shop_id && (job.printerid || job.assigned_printer)) {
+      try {
+        const shop = await NewShop.findOne({ shopId: job.shop_id });
+        if (shop) {
+          const pid = job.printerid || job.assigned_printer;
+          let printer = (shop.printers || []).find(p => (p.printerid || p.printerId) === pid);
+          if (!printer) {
+            // attempt to match by agentDetected.name
+            printer = (shop.printers || []).find(p => p.agentDetected?.name === pid);
+          }
+          if (printer && printer.manualStatus === 'pending_off') {
+            printer.manualStatus = 'off';
+            await shop.save();
+          }
+        }
+      } catch (e) {
+        console.error('[FINALJOB:status] post-complete manualStatus flip failed:', e.message);
+      }
+    }
+  // Socket removed: frontend uses polling
+  res.json(job);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 module.exports = router;
+
+// Toggle autoPrintMode for all finaljobs in a shop (by canonical shop_id)
+router.patch('/autoprint/:shop_id', async (req, res) => {
+  try {
+    const shopId = req.params.shop_id;
+    const { autoPrintMode } = req.body || {};
+    if (typeof autoPrintMode !== 'boolean') {
+      return res.status(400).json({ message: 'autoPrintMode boolean is required' });
+    }
+    // When turning ON auto mode: also clear any manualTriggered flags (mutually exclusive)
+    // When turning OFF auto mode: leave manualTriggered as-is (manual triggers can be set per job)
+    const update = autoPrintMode ? { autoPrintMode: true, manualTriggered: false } : { autoPrintMode: false };
+    const result = await FinalJob.updateMany(
+      { shop_id: shopId },
+      { $set: update }
+    );
+    res.json({ success: true, matched: result.matchedCount ?? result.n, modified: result.modifiedCount ?? result.nModified });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Manual print trigger (frontend uses manualTrigger; map to manualTriggered without schema change)
+router.patch('/:id/manual', async (req, res) => {
+  try {
+    const { manualTrigger } = req.body || {};
+    if (typeof manualTrigger !== 'boolean') {
+      return res.status(400).json({ message: 'manualTrigger boolean is required' });
+    }
+    const job = await FinalJob.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: 'Job not found' });
+
+    // Enforce mutual exclusivity
+    if (manualTrigger === true) {
+      // Manual print can only be triggered when auto mode is OFF
+      if (job.autoPrintMode) {
+        return res.status(400).json({ message: 'Cannot trigger manual print in auto mode' });
+      }
+      job.manualTriggered = true;
+      job.autoPrintMode = false; // ensure exclusivity at the job level
+    } else {
+      job.manualTriggered = false;
+      // Do not auto-enable autoPrintMode here; leave as-is
+    }
+    await job.save();
+  // Socket removed: frontend uses polling
+    // Return alias field for frontend convenience
+    const obj = job.toObject();
+    obj.manualTrigger = !!obj.manualTriggered;
+    res.json(obj);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});

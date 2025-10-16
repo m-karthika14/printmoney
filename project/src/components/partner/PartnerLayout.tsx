@@ -22,13 +22,13 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const fetchShop = async () => {
-      const id = localStorage.getItem('shopId');
-      if (!id) return;
+  const canonical = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
+      if (!canonical) return;
       try {
-        const res = await fetch(`http://localhost:5000/api/shops/${id}`);
+  const res = await fetch(`http://localhost:5000/api/shops/by-shop/${canonical}`);
         if (res.ok) {
           const shop = await res.json();
-          setShopData({ name: shop.name || shop.shopName || '', shopId: shop.shopId || '' });
+          setShopData({ name: shop.name || shop.shopName || '', shopId: shop.shop_id || shop.shopId || '' });
         }
       } catch (err) {
         // handle error

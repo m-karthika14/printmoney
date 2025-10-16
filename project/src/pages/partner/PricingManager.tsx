@@ -133,7 +133,7 @@ const PricingManager = () => {
   const [shopId, setShopId] = useState('');
 
   useEffect(() => {
-    const id = localStorage.getItem('shopId');
+  const id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
     if (id) {
       setShopId(id);
     }
@@ -141,7 +141,8 @@ const PricingManager = () => {
 
   useEffect(() => {
     if (!shopId) return;
-    fetch(`http://localhost:5000/api/newshop/${shopId}/fixed-documents`)
+  // Accepts either _id or shop_id; we pass canonical shop_id
+  fetch(`http://localhost:5000/api/newshop/${shopId}/fixed-documents`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -154,7 +155,8 @@ const PricingManager = () => {
   useEffect(() => {
     if (!shopId) return;
 
-    fetch(`http://localhost:5000/api/shops/shop/${shopId}/pricing`)
+  // Flexible route: accepts _id or shop_id
+  fetch(`http://localhost:5000/api/shops/shop/${shopId}/pricing`)
       .then(res => res.json())
       .then(data => {
         const p = data.pricing || {};
@@ -166,7 +168,7 @@ const PricingManager = () => {
         });
       });
 
-    fetch(`http://localhost:5000/api/shops/shop/${shopId}/paper-size-pricing`)
+  fetch(`http://localhost:5000/api/shops/shop/${shopId}/paper-size-pricing`)
       .then(res => res.json())
       .then(data => {
         if (data.paperSizePricing) {
@@ -174,7 +176,7 @@ const PricingManager = () => {
         }
       });
 
-    fetch(`http://localhost:5000/api/newshop/${shopId}/discounts`)
+  fetch(`http://localhost:5000/api/newshop/${shopId}/discounts`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -182,7 +184,8 @@ const PricingManager = () => {
         }
       });
 
-    fetch(`http://localhost:5000/api/shops/${shopId}`)
+  // Fetch shop details flexibly by shop_id
+  fetch(`http://localhost:5000/api/shops/${shopId}`)
       .then(res => res.json())
       .then(data => {
         const allServices = Array.isArray(data.services) ? data.services : [];
@@ -224,6 +227,7 @@ const PricingManager = () => {
 
       (async () => {
         try {
+          // Services route updated to accept _id or shop_id
           await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },

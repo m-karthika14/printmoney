@@ -47,4 +47,8 @@ FinalJobSchema.pre('save', function(next) {
   next();
 });
 
+// Helpful indexes for common queries
+FinalJobSchema.index({ shop_id: 1, job_status: 1 });
+FinalJobSchema.index({ job_number: 1 });
+
 module.exports = mongoose.model('FinalJob', FinalJobSchema);

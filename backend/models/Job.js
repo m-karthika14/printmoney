@@ -34,6 +34,10 @@ const JobSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Helpful indexes for common queries
+JobSchema.index({ shop_id: 1 });
+JobSchema.index({ job_number: 1 });
+
 module.exports = mongoose.model("Job", JobSchema, "jobs");
 
 // Sync job updates to FinalJob after allotment

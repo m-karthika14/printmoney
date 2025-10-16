@@ -3,10 +3,18 @@ const router = express.Router();
 const NewShop = require('../models/NewShop');
 // ...existing code...
 
+// Helper: resolve by id (ObjectId) or shop_id/shopId string
+async function resolveShopByAny(idOrCode) {
+	if (!idOrCode) return null;
+	const isHex24 = /^[a-fA-F0-9]{24}$/.test(idOrCode);
+	if (isHex24) return await NewShop.findById(idOrCode);
+	return await NewShop.findOne({ $or: [{ shop_id: idOrCode }, { shopId: idOrCode }] });
+}
+
 // GET: fetch only pricing.fixedDocuments for a shop
 router.get('/:id/fixed-documents', async (req, res) => {
 	try {
- 		const shop = await NewShop.findById(req.params.id);
+ 		const shop = await resolveShopByAny(req.params.id);
  		if (!shop) {
  			return res.status(404).json({ message: 'Shop not found' });
  		}
@@ -23,8 +31,12 @@ router.patch('/:id/fixed-documents', async (req, res) => {
  		if (!Array.isArray(fixedDocuments)) {
  			return res.status(400).json({ message: 'fixedDocuments must be an array' });
  		}
- 		const shop = await NewShop.findByIdAndUpdate(
- 			req.params.id,
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		const shop = await NewShop.findByIdAndUpdate(
+			shopRaw._id,
  			{ $set: { 'pricing.fixedDocuments': fixedDocuments } },
  			{ new: true, runValidators: true }
  		);
@@ -49,7 +61,7 @@ router.get('/', async (req, res) => {
 // GET newshop by ID
 router.get('/:id', async (req, res) => {
 	try {
-		const shop = await NewShop.findById(req.params.id);
+		const shop = await resolveShopByAny(req.params.id);
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
@@ -73,8 +85,10 @@ router.post('/', async (req, res) => {
 // PUT update newshop
 router.put('/:id', async (req, res) => {
 	try {
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) return res.status(404).json({ message: 'Shop not found' });
 		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
+			shopRaw._id,
 			req.body,
 			{ new: true, runValidators: true }
 		);
@@ -90,7 +104,9 @@ router.put('/:id', async (req, res) => {
 // DELETE newshop
 router.delete('/:id', async (req, res) => {
 	try {
-		const shop = await NewShop.findByIdAndDelete(req.params.id);
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) return res.status(404).json({ message: 'Shop not found' });
+		const shop = await NewShop.findByIdAndDelete(shopRaw._id);
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
@@ -103,7 +119,7 @@ router.delete('/:id', async (req, res) => {
 // GET: fetch only pricing.customDiscounts for a shop
 router.get('/:id/discounts', async (req, res) => {
 	try {
-		const shop = await NewShop.findById(req.params.id);
+		const shop = await resolveShopByAny(req.params.id);
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
@@ -120,8 +136,12 @@ router.patch('/:id/discounts', async (req, res) => {
 		if (!Array.isArray(customDiscounts)) {
 			return res.status(400).json({ message: 'customDiscounts must be an array' });
 		}
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
 		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
+			shopRaw._id,
 			{ $set: { 'pricing.customDiscounts': customDiscounts } },
 			{ new: true, runValidators: true }
 		);

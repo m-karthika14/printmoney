@@ -71,7 +71,7 @@ async function syncPrinters(shopIdFilter) {
       continue;
     }
 
-    const shop = await NewShop.findOne({ shopId });
+  const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId }] });
     if (!shop) {
       console.warn(`[PRINTER-SYNC] No shop for shopId=${shopId}`);
       summary.totals.skipped++;
@@ -157,9 +157,10 @@ async function syncPrinters(shopIdFilter) {
     }
     shop.printers = Array.from(unique.values());
 
-    await shop.save();
-    console.log(`[PRINTER-SYNC] shop ${shop.shopId} — inserted: ${inserted}, updated: ${updated}, skipped: ${skipped}`);
-    summary.perShop.push({ shopId: shop.shopId, inserted, updated, skipped });
+  await shop.save();
+  // Socket removed: frontend uses polling
+  console.log(`[PRINTER-SYNC] shop ${shop.shop_id || shop.shopId} — inserted: ${inserted}, updated: ${updated}, skipped: ${skipped}`);
+  summary.perShop.push({ shopId: shop.shop_id || shop.shopId, inserted, updated, skipped });
     summary.totals.inserted += inserted;
     summary.totals.updated += updated;
     summary.totals.skipped += skipped;

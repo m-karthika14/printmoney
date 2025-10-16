@@ -65,7 +65,7 @@ const ShopProfile: React.FC = () => {
     // Fetch shop profile from backend
     async function fetchShop() {
       try {
-        const id = localStorage.getItem('shopId');
+  const id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
         console.log('shopId from localStorage:', id);
         if (!id) return;
         const res = await fetch(`http://localhost:5000/api/shops/${id}`);
@@ -175,8 +175,8 @@ const ShopProfile: React.FC = () => {
       // Try to get _id from localStorage if previously saved
       let id = localStorage.getItem('shopMongoId');
       if (!id) {
-        // Fallback to shopId
-        id = localStorage.getItem('shopId');
+        // Fallback to canonical shop_id
+        id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
       }
       if (!id) return;
       const res = await fetch(`http://localhost:5000/api/shops/${id}`);

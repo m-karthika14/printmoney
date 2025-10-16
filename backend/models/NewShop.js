@@ -13,7 +13,7 @@ const PrinterSchema = new mongoose.Schema({
   printerid: { type: String },
   status: { type: String, default: "offline" }, // "online" | "offline"
   // Shopkeeper controlled allow/deny for allocation
-  manualStatus: { type: String, enum: ["on", "off"], default: "on" },
+  manualStatus: { type: String, enum: ["on", "off", "pending_off"], default: "on" },
   // additional agent metadata
   port: { type: String, default: null },
   lastUpdate: { type: Date },
@@ -83,7 +83,10 @@ const NewShopSchema = new mongoose.Schema({
   phone: { type: String, required: true },
   address: { type: String, required: true },
   password: { type: String, required: true }, // Store hashed password in production
-  shopId: { type: String, required: true, unique: true },
+  // Canonical shop identifier (string like "T47439k")
+  shop_id: { type: String, required: true, unique: true },
+  // Backward-compat: keep legacy field if present in DB; prefer shop_id everywhere
+  shopId: { type: String },
   apiKey: { type: String, required: true, unique: true },
 
   description: { type: String, default: "" },
@@ -136,6 +139,12 @@ const NewShopSchema = new mongoose.Schema({
   agent: AgentSchema,
 
   printers: [PrinterSchema],
+
+  // Daily stats snapshot (requested minimal addition)
+  dailystats: {
+    totaljobscompleeted: { type: Number },
+    jobpercentchaneg: { type: String }
+  },
 
   pricing: {
     bwSingle: String,
@@ -198,6 +207,13 @@ const NewShopSchema = new mongoose.Schema({
   services: [ServiceSchema],
 
   createdAt: { type: Date, default: Date.now }
+});
+
+// Keep shop_id and legacy shopId in sync (compatibility)
+NewShopSchema.pre('validate', function(next) {
+  if (!this.shop_id && this.shopId) this.shop_id = this.shopId;
+  if (!this.shopId && this.shop_id) this.shopId = this.shop_id;
+  next();
 });
 
 // Make virtuals appear in JSON outputs
