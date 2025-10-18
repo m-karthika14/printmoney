@@ -24,10 +24,11 @@ const JobQueue: React.FC = () => {
   const [shopId, setShopId] = useState<string>('');
   const [isPolling] = useState<boolean>(true);
   const [triggering, setTriggering] = useState<Set<string>>(new Set());
+  const [total24, setTotal24] = useState<number>(0);
+  // ...existing code...
 
   const printingCount = counts.printing;
   const completedCount = counts.completed;
-  const totalCount = counts.total;
 
   const formatTime = (timeString: string) => new Date(timeString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   const formatDate = (timeString: string) => new Date(timeString).toLocaleDateString('en-IN');
@@ -35,6 +36,16 @@ const JobQueue: React.FC = () => {
     const n = typeof val === 'number' ? val : (typeof val === 'string' ? Number(val) : NaN);
     if (!Number.isFinite(n)) return '₹—';
     return `₹${n.toFixed(2)}`;
+  };
+  const displayCustomer = (c: any) => {
+    if (!c) return '—';
+    if (typeof c === 'string') return c;
+    // common shapes: { name, email, phone, _id }
+    if (c.name) return String(c.name);
+    if (c.email) return String(c.email);
+    if (c.phone) return String(c.phone);
+    if (c._id) return String(c._id);
+    return JSON.stringify(c);
   };
 
   useEffect(() => {
@@ -82,6 +93,19 @@ const JobQueue: React.FC = () => {
     }
   }, [shopId]);
 
+  const fetchTotals = useCallback(async () => {
+    if (!shopId) return;
+    try {
+      const resp = await fetch(`/api/jobs/total/${shopId}?last24=true`);
+      if (!resp.ok) throw new Error('Failed to fetch total jobs');
+      const data = await resp.json();
+      if (typeof data.totalJobs === 'number') setTotal24(data.totalJobs);
+      // no dashboard fetch here; JobQueue total card shows only last-24h jobs from Job collection
+    } catch (e) {
+      console.error(e);
+    }
+  }, [shopId]);
+
   const toggleAutoPrint = async () => {
     if (!shopId) return;
     try {
@@ -123,7 +147,7 @@ const JobQueue: React.FC = () => {
     }
   };
 
-  const refreshJobs = useCallback(() => { fetchQueue(); }, [fetchQueue]);
+  const refreshJobs = useCallback(() => { fetchQueue(); fetchTotals(); }, [fetchQueue, fetchTotals]);
 
   useEffect(() => {
     let t: any;
@@ -131,7 +155,7 @@ const JobQueue: React.FC = () => {
     return () => t && clearInterval(t);
   }, [isPolling, refreshJobs]);
 
-  useEffect(() => { if (shopId) fetchQueue(); }, [shopId, fetchQueue]);
+  useEffect(() => { if (shopId) { fetchQueue(); fetchTotals(); } }, [shopId, fetchQueue, fetchTotals]);
 
   return (
     <PartnerLayout>
@@ -157,7 +181,15 @@ const JobQueue: React.FC = () => {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }} className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white rounded-2xl shadow-lg p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-600">Printing</p><p className="text-2xl font-bold text-gray-900 mt-1">{printingCount}</p></div><div className="px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800">Live</div></div></div>
           <div className="bg-white rounded-2xl shadow-lg p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-600">Completed</p><p className="text-2xl font-bold text-gray-900 mt-1">{completedCount}</p></div><div className="px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Live</div></div></div>
-          <div className="bg-white rounded-2xl shadow-lg p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-600">Total Jobs</p><p className="text-2xl font-bold text-gray-900 mt-1">{totalCount}</p></div><div className="px-3 py-1 rounded-full text-sm font-medium bg-lime-100 text-lime-800">Live</div></div></div>
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Jobs</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{total24}</p>
+              </div>
+              <div className="px-3 py-1 rounded-full text-sm font-medium bg-lime-100 text-lime-800">Last 24h</div>
+            </div>
+          </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }} className="bg-white rounded-2xl shadow-lg overflow-hidden">
@@ -217,7 +249,7 @@ const JobQueue: React.FC = () => {
                         <div className="flex items-center space-x-2">
                           <User className="h-4 w-4 text-gray-400" />
                           <div>
-                            <p className="font-medium text-gray-900">{job.customer || '—'}</p>
+                            <p className="font-medium text-gray-900">{displayCustomer(job.customer)}</p>
                             <div className="flex items-center space-x-1 mt-1"><Phone className="h-3 w-3 text-gray-400" /><span className="text-xs text-gray-600">+91 XXXXX XXXXX</span></div>
                           </div>
                         </div>

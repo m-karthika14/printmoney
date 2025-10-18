@@ -10,9 +10,12 @@ router.get('/queue/:shop_id', async (req, res) => {
     const shopId = req.params.shop_id;
     if (!shopId) return res.status(400).json({ message: 'shop_id is required' });
 
-    const [jobs, finals] = await Promise.all([
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Use Job collection to compute rolling last-24h totals (jobs created in last 24h)
+    const [jobs, finals, total24hr] = await Promise.all([
       Job.find({ shop_id: shopId }).lean(),
       FinalJob.find({ shop_id: shopId }).lean(),
+      Job.countDocuments({ shop_id: shopId, createdAt: { $gte: since } })
     ]);
 
     const jobByNumber = new Map();
@@ -43,6 +46,10 @@ router.get('/queue/:shop_id', async (req, res) => {
         customer: j.customer || f.customer || '',
         payment_status: j.payment_status || f.payment_status || 'pending',
         createdAt: j.createdAt || f.createdAt,
+        updatedAt: f.updatedAt,
+        completed_at: f.completed_at,
+        current_file: f.current_file,
+        document_urls: j.document_urls || f.document_urls || [],
         print_options: f.print_options || {},
         total_amount: amt,
       };
@@ -64,7 +71,7 @@ router.get('/queue/:shop_id', async (req, res) => {
 
     res.json({
       shop_id: shopId,
-      counts: { printing, completed, total },
+      counts: { printing, completed, total, total24hr },
       autoPrintMode: autoMode,
       jobs: merged,
     });
@@ -74,3 +81,24 @@ router.get('/queue/:shop_id', async (req, res) => {
 });
 
 module.exports = router;
+// Total jobs for a shop (Job collection only)
+// GET /api/jobs/total/:shop_id?last24=true
+router.get('/total/:shop_id', async (req, res) => {
+  try {
+    const shopId = req.params.shop_id;
+    if (!shopId) return res.status(400).json({ message: 'shop_id is required' });
+
+    const last24 = req.query.last24 === 'true' || req.query.last24 === '1';
+    if (last24) {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const total = await Job.countDocuments({ shop_id: shopId, createdAt: { $gte: since } });
+      return res.json({ shop_id: shopId, totalJobs: total });
+    }
+
+    // Default: count current Job documents (active queue)
+    const total = await Job.countDocuments({ shop_id: shopId });
+    res.json({ shop_id: shopId, totalJobs: total });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});

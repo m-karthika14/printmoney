@@ -26,6 +26,7 @@ interface ShopProfileData {
   isOpen: boolean;
   workingHours: Record<DayOfWeek, WorkingHour>;
   services: Service[];
+  qr_code_url?: string;
 }
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -77,7 +78,13 @@ const ShopProfile: React.FC = () => {
         console.log('Fetched shop:', shop);
         // Ensure workingHours has all days
         const workingHours: Record<DayOfWeek, WorkingHour> = { ...defaultWorkingHours, ...(shop.workingHours || {}) };
-        setShopData({ ...defaultShopData, ...shop, name: shop.name || shop.shopName, workingHours });
+        // Try to also fetch QR info
+        let qrData: { qr_code_url?: string; link?: string } = {};
+        try {
+          const qrRes = await fetch(`http://localhost:5000/api/shops/${id}/qr`);
+          if (qrRes.ok) qrData = await qrRes.json();
+        } catch {}
+        setShopData({ ...defaultShopData, ...shop, name: shop.name || shop.shopName, workingHours, qr_code_url: (qrData as any).qr_code_url || shop.qr_code_url });
       } catch (err) {
         console.log('Error fetching shop:', err);
       }
@@ -608,17 +615,41 @@ const ShopProfile: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900">Shop QR Code</h3>
               </div>
               
-              <div className="bg-gray-100 rounded-xl p-8 mb-4">
-                <QrCode className="h-32 w-32 text-gray-400 mx-auto" />
+              <div className="bg-gray-100 rounded-xl p-4 mb-4 flex items-center justify-center">
+                {shopData.qr_code_url ? (
+                  <img
+                    src={`http://localhost:5000${shopData.qr_code_url}`}
+                    alt="Shop QR"
+                    className="w-48 h-48 object-contain"
+                  />
+                ) : (
+                  <div className="p-8">
+                    <QrCode className="h-32 w-32 text-gray-400 mx-auto" />
+                    <p className="text-xs text-gray-500 mt-2">QR will appear after it's generated</p>
+                  </div>
+                )}
               </div>
               
               <p className="text-sm text-gray-600 mb-4">
                 Customers can scan this QR code to access your shop directly
               </p>
               
-              <button className="w-full bg-lime-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-lime-600 transition-colors duration-200">
-                Download QR Code
-              </button>
+              {shopData.qr_code_url ? (
+                <a
+                  className="block w-full text-center bg-lime-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-lime-600 transition-colors duration-200"
+                  href={`http://localhost:5000${shopData.qr_code_url}`}
+                  download={`${shopData.shopId || 'shop'}_QR.png`}
+                >
+                  Download QR Code
+                </a>
+              ) : (
+                <button
+                  disabled
+                  className="w-full bg-gray-300 text-gray-600 px-4 py-2 rounded-lg font-medium cursor-not-allowed"
+                >
+                  Generating QR...
+                </button>
+              )}
             </motion.div>
           </div>
         </div>

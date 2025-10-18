@@ -37,6 +37,9 @@ const FinalJobSchema = new mongoose.Schema({
   queue_confirmed: { type: Boolean },
   manualTriggered: { type: Boolean, default: false },
   autoPrintMode: { type: Boolean },
+  // Total pages in the job and how many pages actually printed
+  totalpages: { type: Number, default: 0 },
+  totalpagesprinted: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });

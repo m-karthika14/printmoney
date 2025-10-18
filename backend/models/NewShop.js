@@ -140,10 +140,39 @@ const NewShopSchema = new mongoose.Schema({
 
   printers: [PrinterSchema],
 
-  // Daily stats snapshot (requested minimal addition)
+  // Daily stats snapshots (map-style): { 'YYYY-MM-DD': { totalJobsCompleted, createdAt } }
   dailystats: {
-    totaljobscompleeted: { type: Number },
-    jobpercentchaneg: { type: String }
+    type: Map,
+    of: new mongoose.Schema({
+      totalJobsCompleted: { type: Number, default: 0 },
+      createdAt: { type: Date, default: Date.now }
+    }, { _id: false }),
+    default: {}
+  },
+
+
+  // Hierarchical revenue rollups: daily/weekly/monthly/yearly
+  totalRevenue: {
+    daily: {
+      type: Map,
+      of: new mongoose.Schema({ totalRevenue: { type: Number, default: 0 }, createdAt: { type: Date, default: Date.now } }, { _id: false }),
+      default: {}
+    },
+    weekly: {
+      type: Map,
+      of: new mongoose.Schema({ totalRevenue: { type: Number, default: 0 }, createdAt: { type: Date, default: Date.now } }, { _id: false }),
+      default: {}
+    },
+    monthly: {
+      type: Map,
+      of: new mongoose.Schema({ totalRevenue: { type: Number, default: 0 }, createdAt: { type: Date, default: Date.now } }, { _id: false }),
+      default: {}
+    },
+    yearly: {
+      type: Map,
+      of: new mongoose.Schema({ totalRevenue: { type: Number, default: 0 }, createdAt: { type: Date, default: Date.now } }, { _id: false }),
+      default: {}
+    }
   },
 
   pricing: {
@@ -205,6 +234,9 @@ const NewShopSchema = new mongoose.Schema({
   },
 
   services: [ServiceSchema],
+
+  // Stores relative URL to the generated QR PNG (e.g., /uploads/qrcodes/<shop_id>.png)
+  qr_code_url: { type: String },
 
   createdAt: { type: Date, default: Date.now }
 });

@@ -1,125 +1,157 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, FileText, Download, RotateCcw, Filter, Search, Eye } from 'lucide-react';
+import { FileText, Search } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
 
-const PrintHistory = () => {
-  const [dateRange, setDateRange] = useState('week');
+type QueueJob = {
+  finaljobId: string;
+  job_number: string;
+  job_status: 'pending' | 'printing' | 'completed';
+  customer?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  completed_at?: string;
+  print_options?: { copies?: number; printType?: string };
+  total_amount?: number | string;
+  current_file?: string;
+  document_urls?: string[];
+};
+
+type DailyStat = { date: string; totalJobsCompleted: number; createdAt?: string };
+
+const PrintHistory: React.FC = () => {
+  // Filters
+  const [timeRange, setTimeRange] = useState<'today' | '24h' | '9h' | '6h' | '4h' | '1h' | 'all'>('24h');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState('all');
+  const [filterType, setFilterType] = useState<'all' | 'color' | 'bw'>('all');
 
-  const historyJobs = [
-    {
-      id: 'PB123ABC45',
-      fileName: 'Annual_Report_2024.pdf',
-      customer: 'Tech Solutions Pvt Ltd',
-      phone: '+91 98765 43210',
-      pages: 85,
-      copies: 3,
-      colorMode: 'color',
-      amount: 2040,
-      completedAt: '2025-01-14T18:30:00',
-      paymentStatus: 'paid',
-      rating: 5
-    },
-    {
-      id: 'PB456DEF78',
-      fileName: 'Wedding_Album_Photos.pdf',
-      customer: 'Ravi & Priya',
-      phone: '+91 87654 32109',
-      pages: 50,
-      copies: 2,
-      colorMode: 'color',
-      amount: 800,
-      completedAt: '2025-01-14T16:45:00',
-      paymentStatus: 'paid',
-      rating: 5
-    },
-    {
-      id: 'PB789GHI01',
-      fileName: 'Research_Paper.docx',
-      customer: 'Dr. Anita Singh',
-      phone: '+91 76543 21098',
-      pages: 25,
-      copies: 10,
-      colorMode: 'bw',
-      amount: 500,
-      completedAt: '2025-01-14T14:20:00',
-      paymentStatus: 'paid',
-      rating: 4
-    },
-    {
-      id: 'PB234JKL56',
-      fileName: 'Legal_Documents.pdf',
-      customer: 'Advocate Sharma',
-      phone: '+91 65432 10987',
-      pages: 120,
-      copies: 1,
-      colorMode: 'bw',
-      amount: 240,
-      completedAt: '2025-01-13T17:15:00',
-      paymentStatus: 'paid',
-      rating: 5
-    },
-    {
-      id: 'PB567MNO89',
-      fileName: 'Product_Catalog.pdf',
-      customer: 'Fashion Hub',
-      phone: '+91 54321 09876',
-      pages: 32,
-      copies: 20,
-      colorMode: 'color',
-      amount: 5120,
-      completedAt: '2025-01-13T15:30:00',
-      paymentStatus: 'paid',
-      rating: 5
-    },
-    {
-      id: 'PB890PQR12',
-      fileName: 'Exam_Question_Papers.pdf',
-      customer: 'St. Mary\'s School',
-      phone: '+91 43210 98765',
-      pages: 8,
-      copies: 150,
-      colorMode: 'bw',
-      amount: 2400,
-      completedAt: '2025-01-12T12:00:00',
-      paymentStatus: 'paid',
-      rating: 5
+  // Data
+  const [shopId, setShopId] = useState('');
+  const [jobs, setJobs] = useState<QueueJob[]>([]);
+  const [dailystats, setDailystats] = useState<DailyStat[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [grandRevenue, setGrandRevenue] = useState<number>(0);
+
+  // Resolve shopId from URL/localStorage (canonical like T47439k)
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const qsShop = url.searchParams.get('shop_id') || url.searchParams.get('shopId') || undefined;
+    const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId') || undefined;
+    const HEX24 = /^[a-fA-F0-9]{24}$/;
+    const sid = (qsShop && !HEX24.test(qsShop)) ? qsShop : (stored && !HEX24.test(stored) ? stored : '');
+    if (qsShop && !HEX24.test(qsShop)) {
+      window.localStorage.setItem('shop_id', qsShop);
     }
-  ];
+    if (stored && HEX24.test(stored)) {
+      try { window.localStorage.removeItem('shopId'); } catch {}
+      try { window.localStorage.removeItem('shop_id'); } catch {}
+    }
+    setShopId(sid || '');
+  }, []);
 
-  const filteredJobs = historyJobs.filter(job => {
-    const matchesSearch = job.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         job.customer.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterType === 'all' || 
-                         (filterType === 'color' && job.colorMode === 'color') ||
-                         (filterType === 'bw' && job.colorMode === 'bw');
-    return matchesSearch && matchesFilter;
-  });
+  const fetchData = useCallback(async (sid: string) => {
+    if (!sid) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [queueRes, dsRes, shopSumRes] = await Promise.all([
+        fetch(`/api/jobs/queue/${sid}`),
+        fetch(`/api/shops/${sid}/dailystats?limit=365`),
+        fetch(`/api/shops/${sid}/total-revenue?sum=true`)
+      ]);
+      if (!queueRes.ok) throw new Error('Failed to fetch jobs');
+      if (!dsRes.ok) throw new Error('Failed to fetch dailystats');
+      const queueJson = await queueRes.json();
+      const dsJson = await dsRes.json();
+      const list: QueueJob[] = Array.isArray(queueJson.jobs) ? queueJson.jobs : [];
+      setJobs(list);
+      const ds: DailyStat[] = Array.isArray(dsJson.data) ? dsJson.data : [];
+      setDailystats(ds);
+      try {
+        const json = await shopSumRes.json();
+        if (typeof json.total === 'number') setGrandRevenue(json.total);
+      } catch {}
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const totalRevenue = filteredJobs.reduce((sum, job) => sum + job.amount, 0);
-  const totalJobs = filteredJobs.length;
-  const avgRating = filteredJobs.reduce((sum, job) => sum + job.rating, 0) / filteredJobs.length;
+  useEffect(() => { if (shopId) fetchData(shopId); }, [shopId, fetchData]);
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+  // Helpers
+  const formatAmount = (val: unknown) => {
+    const n = typeof val === 'number' ? val : (typeof val === 'string' ? Number(val) : NaN);
+    if (!Number.isFinite(n)) return '₹—';
+    return `₹${n.toFixed(2)}`;
+  };
+  const basename = (s?: string) => {
+    if (!s) return undefined;
+    try { return decodeURIComponent(s.split('/').pop() || s); } catch { return s.split('/').pop() || s; }
+  };
+  // Time filters should use createdAt primarily (as requested), then fallback
+  const pickWhen = (j: QueueJob) => j.createdAt || j.updatedAt || j.completed_at || '';
+  const parseDate = (s?: string) => s ? new Date(s) : null;
+  const formatDateTime = (s?: string) => {
+    const d = parseDate(s);
+    if (!d) return '—';
+    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Derived: Completed jobs only
+  const completedJobs = useMemo(() => jobs.filter(j => j.job_status === 'completed'), [jobs]);
+
+  // Apply filters
+  const filteredJobs = useMemo(() => {
+    const now = new Date();
+    let start: Date | null = null;
+    if (timeRange === 'today') {
+      start = new Date(); start.setHours(0,0,0,0);
+    } else if (timeRange === '24h') {
+      start = new Date(now.getTime() - 24*60*60*1000);
+    } else if (timeRange === '9h') {
+      start = new Date(now.getTime() - 9*60*60*1000);
+    } else if (timeRange === '6h') {
+      start = new Date(now.getTime() - 6*60*60*1000);
+    } else if (timeRange === '4h') {
+      start = new Date(now.getTime() - 4*60*60*1000);
+    } else if (timeRange === '1h') {
+      start = new Date(now.getTime() - 1*60*60*1000);
+    }
+
+    const term = searchTerm.trim().toLowerCase();
+    return completedJobs.filter(j => {
+      // time filter using completed_at -> updatedAt -> createdAt
+      const when = pickWhen(j);
+      if (start && when) {
+        const dt = new Date(when);
+        if (dt < start) return false;
+      }
+      // color/bw filter from print_options.printType
+      const pt = (j.print_options?.printType || '').toString().toLowerCase();
+      if (filterType === 'color' && pt !== 'color') return false;
+      if (filterType === 'bw' && pt !== 'bw' && pt !== 'black_and_white' && pt !== 'blackwhite') return false;
+      // search on file name or customer
+      if (term) {
+        const fname = basename(j.current_file) || basename(j.document_urls?.[0]) || '';
+        const customer = (j.customer || '').toLowerCase();
+        const match = fname.toLowerCase().includes(term) || customer.includes(term) || (j.job_number || '').toLowerCase().includes(term);
+        if (!match) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      const ad = new Date(pickWhen(a) || 0).getTime();
+      const bd = new Date(pickWhen(b) || 0).getTime();
+      return bd - ad;
     });
-  };
+  }, [completedJobs, timeRange, searchTerm, filterType]);
 
-  const renderStars = (rating) => {
-    return Array.from({ length: 5 }, (_, i) => (
-      <span key={i} className={`text-sm ${i < rating ? 'text-yellow-400' : 'text-gray-300'}`}>
-        ★
-      </span>
-    ));
-  };
+  // Cards: revenue from filtered jobs, completed jobs from dailystats (all-time snapshot sum)
+  // Total Revenue card now shows grand total across all shops from backend
+
+  const allTimeCompleted = useMemo(() => dailystats.reduce((sum, d) => sum + (typeof d.totalJobsCompleted === 'number' ? d.totalJobsCompleted : 0), 0), [dailystats]);
 
   return (
     <PartnerLayout>
@@ -142,28 +174,19 @@ const PrintHistory = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="grid grid-cols-1 md:grid-cols-4 gap-6"
+          className="grid grid-cols-1 md:grid-cols-2 gap-6"
         >
           <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h3 className="text-sm font-medium text-gray-600">Total Revenue</h3>
-            <p className="text-2xl font-bold text-gray-900 mt-1">₹{totalRevenue.toLocaleString()}</p>
-          </div>
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h3 className="text-sm font-medium text-gray-600">Completed Jobs</h3>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{totalJobs}</p>
-          </div>
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h3 className="text-sm font-medium text-gray-600">Average Rating</h3>
-            <div className="flex items-center mt-1">
-              <p className="text-2xl font-bold text-gray-900 mr-2">{avgRating.toFixed(1)}</p>
-              <div className="flex">{renderStars(Math.round(avgRating))}</div>
+            <div className="flex items-baseline justify-between w-full">
+              <h3 className="text-sm font-medium text-black">Total Revenue</h3>
+              <p className="text-2xl font-bold text-gray-900">{formatAmount(grandRevenue)}</p>
             </div>
           </div>
           <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h3 className="text-sm font-medium text-gray-600">Pages Printed</h3>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {filteredJobs.reduce((sum, job) => sum + (job.pages * job.copies), 0).toLocaleString()}
-            </p>
+            <div className="flex items-baseline justify-between w-full">
+              <h3 className="text-sm font-medium text-black">Completed Jobs</h3>
+              <p className="text-2xl font-bold text-gray-900">{allTimeCompleted}</p>
+            </div>
           </div>
         </motion.div>
 
@@ -180,7 +203,7 @@ const PrintHistory = () => {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search jobs or customers..."
+                  placeholder="Search file name or customer..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-lime-500 focus:border-lime-500 w-64"
@@ -189,7 +212,7 @@ const PrintHistory = () => {
               
               <select
                 value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
+                onChange={(e) => setFilterType(e.target.value as any)}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
               >
                 <option value="all">All Types</option>
@@ -199,14 +222,17 @@ const PrintHistory = () => {
             </div>
 
             <select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value as any)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-lime-500 focus:border-lime-500"
             >
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-              <option value="year">This Year</option>
+              <option value="today">Today (calendar)</option>
+              <option value="24h">Last 24 hours</option>
+              <option value="9h">Last 9 hours</option>
+              <option value="6h">Last 6 hours</option>
+              <option value="4h">Last 4 hours</option>
+              <option value="1h">Last 1 hour</option>
+              <option value="all">All available</option>
             </select>
           </div>
         </motion.div>
@@ -223,53 +249,50 @@ const PrintHistory = () => {
           </div>
 
           <div className="divide-y divide-gray-200">
-            {filteredJobs.map((job, index) => (
-              <div key={job.id} className="p-6 hover:bg-gray-50 transition-colors duration-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-start space-x-4 flex-1">
-                    <div className="bg-green-100 p-3 rounded-xl">
-                      <FileText className="h-6 w-6 text-green-600" />
-                    </div>
-                    
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-gray-900">{job.fileName}</h3>
-                        <div className="flex items-center space-x-2">
-                          {renderStars(job.rating)}
+            {loading && (
+              <div className="p-6 text-gray-600">Loading…</div>
+            )}
+            {error && !loading && (
+              <div className="p-6 text-red-600">{error}</div>
+            )}
+            {!loading && !error && filteredJobs.length === 0 && (
+              <div className="p-6 text-gray-600">No completed jobs in the selected window.</div>
+            )}
+            {!loading && !error && filteredJobs.map((job) => {
+              const copies = job.print_options?.copies;
+              const ptype = (job.print_options?.printType || '').toString().toLowerCase();
+              const tagCls = ptype === 'color' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800';
+              return (
+                <div key={job.finaljobId} className="p-6 hover:bg-gray-50 transition-colors duration-200">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4 flex-1 min-w-0">
+                      <div className="bg-green-100 p-3 rounded-xl shrink-0">
+                        <FileText className="h-6 w-6 text-green-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 className="font-semibold text-gray-900 truncate">{job.job_number || '—'}</h3>
+                        </div>
+                        <p className="text-gray-600 mb-1 truncate">{job.customer || 'guest'}</p>
+                        <p className="text-sm text-gray-500 mb-2">{formatDateTime(pickWhen(job))}</p>
+                        <div className="flex items-center gap-3 text-sm text-gray-600">
+                          {typeof copies === 'number' && <span>{copies} copies</span>}
+                          {ptype && (
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${tagCls}`}>
+                              {ptype === 'color' ? 'Color' : 'B&W'}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      
-                      <p className="text-gray-600 mb-1">{job.customer}</p>
-                      <p className="text-sm text-gray-500 mb-2">{formatDate(job.completedAt)}</p>
-                      
-                      <div className="flex items-center space-x-4 text-sm text-gray-600">
-                        <span>{job.pages} pages • {job.copies} copies</span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          job.colorMode === 'color' 
-                            ? 'bg-blue-100 text-blue-800' 
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {job.colorMode === 'color' ? 'Color' : 'B&W'}
-                        </span>
-                        <span className="font-semibold text-gray-900">₹{job.amount}</span>
-                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-sm text-gray-500 mb-1">Amount</div>
+                      <div className="text-lg font-semibold text-gray-900">{formatAmount(job.total_amount)}</div>
                     </div>
                   </div>
-
-                  <div className="flex items-center space-x-2 ml-4">
-                    <button className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors duration-200">
-                      <Eye className="h-4 w-4" />
-                    </button>
-                    <button className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors duration-200">
-                      <Download className="h-4 w-4" />
-                    </button>
-                    <button className="p-2 text-lime-600 hover:text-lime-700 hover:bg-lime-50 rounded-lg transition-colors duration-200">
-                      <RotateCcw className="h-4 w-4" />
-                    </button>
-                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </motion.div>
       </div>

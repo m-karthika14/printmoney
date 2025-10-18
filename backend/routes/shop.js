@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { scheduledSync } = require('../utils/printerSync');
 const FinalJob = require('../models/FinalJob');
-const DailyShopStats = require('../models/DailyShopStats');
+// Legacy model not used after embedding into NewShop.dailystats map
 // GET shop by canonical shop_id (new) and keep legacy (shopId) for compatibility
 router.get('/by-shop/:shop_id', async (req, res) => {
 	try {
@@ -110,46 +110,43 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 
 		const canonical = shop.shop_id || shop.shopId || shopId;
 
-		// Time boundaries (local start of today and yesterday)
+		// Rolling 24-hour window counts using FinalJob (completed within last 24 hours)
 		const now = new Date();
-		const startOfToday = new Date(now); startOfToday.setHours(0,0,0,0);
-		const startOfYesterday = new Date(startOfToday); startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-		const endOfYesterday = new Date(startOfToday); endOfYesterday.setMilliseconds(-1);
+		const since24 = new Date(Date.now() - 24 * 60 * 60 * 1000);
+		const prevSince24 = new Date(Date.now() - 48 * 60 * 60 * 1000);
+		const prevUntil = since24;
 
-		// Counts
-			const [completedToday, pendingNow] = await Promise.all([
-				FinalJob.countDocuments({
-					shop_id: canonical,
-					job_status: 'completed',
-					$or: [
-						{ completed_at: { $gte: startOfToday } },
-						{ createdAt: { $gte: startOfToday } } // fallback if completed_at missing
-					]
-				}),
-				FinalJob.countDocuments({ shop_id: canonical, job_status: 'pending' })
-			]);
+		// completed in last 24h, pending now, and completed in previous 24h (for percent change)
+		const [completedToday, pendingNow, yesterdayCompleted] = await Promise.all([
+			FinalJob.countDocuments({
+				shop_id: canonical,
+				job_status: 'completed',
+				$or: [
+					{ completed_at: { $gte: since24 } },
+					{ createdAt: { $gte: since24 } }
+				]
+			}),
+			FinalJob.countDocuments({ shop_id: canonical, job_status: 'pending' }),
+			FinalJob.countDocuments({
+				shop_id: canonical,
+				job_status: 'completed',
+				$or: [
+					{ completed_at: { $gte: prevSince24, $lt: prevUntil } },
+					{ createdAt: { $gte: prevSince24, $lt: prevUntil } }
+				]
+			})
+		]);
 
-		// Yesterday from snapshot first, else fallback to direct query
-		let yesterdayCompleted = 0;
-			const yDoc = await DailyShopStats.findOne({ shop_id: canonical, date: startOfYesterday.toISOString().slice(0,10) }).lean();
-		if (yDoc) {
-			yesterdayCompleted = yDoc.completedCount || 0;
-		} else {
-				// Fallback (may be partially purged by TTL depending on time)
-				yesterdayCompleted = await FinalJob.countDocuments({
-					shop_id: canonical,
-					job_status: 'completed',
-					$or: [
-						{ completed_at: { $gte: startOfYesterday, $lte: endOfYesterday } },
-						{ createdAt: { $gte: startOfYesterday, $lte: endOfYesterday } }
-					]
-				});
-		}
 		const changePercent = (() => {
-			if (!yesterdayCompleted) return '+0%';
+			// If yesterday is zero, show +0% when both zero, +100% when today>0 (can't compute ratio),
+			// otherwise compute (today - yesterday)/yesterday * 100
+			if (yesterdayCompleted === 0) {
+				if (completedToday === 0) return '+0%';
+				return '+100%';
+			}
 			const diff = completedToday - yesterdayCompleted;
-			const pct = Math.round((diff / Math.max(1, yesterdayCompleted)) * 100);
-			const sign = pct >= 0 ? '+' : '';
+			const pct = Math.round((diff / Math.abs(yesterdayCompleted)) * 100);
+			const sign = pct > 0 ? '+' : '';
 			return `${sign}${pct}%`;
 		})();
 
@@ -186,26 +183,60 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 			job_status: j.job_status
 		}));
 
-		// Prefer NewShop.dailystats if present per user ask
-		const ds = shop.dailystats || {};
-		const hasDsTotal = typeof ds.totaljobscompleeted === 'number' && !Number.isNaN(ds.totaljobscompleeted);
-		const hasDsChange = typeof ds.jobpercentchaneg === 'string' && ds.jobpercentchaneg !== '';
-		// Prefer computed when it's non-zero; else fallback to dailystats if provided
-		const useComputed = completedToday > 0 || !hasDsTotal;
-		const finalTotal = useComputed ? completedToday : ds.totaljobscompleeted;
-		const finalChange = useComputed ? changePercent : (hasDsChange ? ds.jobpercentchaneg : changePercent);
+				// For yesterday's value prefer the stored calendar-day snapshot in NewShop.dailystats (if available)
+				// completedToday is always computed from FinalJob (rolling last 24h)
+				let yesterdayFromDs = null;
+				try {
+					const yDate = new Date(); yDate.setDate(yDate.getDate() - 1); yDate.setHours(0,0,0,0);
+					const dayKey = yDate.toISOString().slice(0,10);
+					const ds = shop.dailystats || {};
+					const entry = ds && ds[dayKey];
+					const val = entry && (typeof entry.totalJobsCompleted === 'number' ? entry.totalJobsCompleted : entry.completedCount);
+					if (typeof val === 'number') yesterdayFromDs = val;
+				} catch (e) { /* ignore */ }
 
-		// Final payload
-		res.json({
-			shopName: shop.shopName,
-			isOpen: typeof shop.isOpen === 'boolean' ? shop.isOpen : true,
-			earningsToday: 0, // dummy allowed
-			printJobsToday: { totalCompleted: finalTotal, changePercent: finalChange },
-			pendingJobs: pendingNow,
-			printers: { online: onlinePrinters, total: totalPrinters },
-			recentJobs,
-			printerList
-		});
+				const finalTotal = completedToday;
+				const yesterdayForPercent = (typeof yesterdayFromDs === 'number') ? yesterdayFromDs : yesterdayCompleted;
+				// Recompute changePercent using yesterdayForPercent
+				const finalChange = (() => {
+					if (yesterdayForPercent === 0) {
+						if (finalTotal === 0) return '+0%';
+						return '+100%';
+					}
+					const diff = finalTotal - yesterdayForPercent;
+					const pct = Math.round((diff / Math.abs(yesterdayForPercent)) * 100);
+					const sign = pct > 0 ? '+' : '';
+					return `${sign}${pct}%`;
+				})();
+
+				// Compute today's earnings (calendar day) dynamically from FinalJob if needed
+				let earningsToday = 0;
+				try {
+					const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+					const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
+					const canonicalId = canonical;
+					const rows = await FinalJob.aggregate([
+						{ $match: { shop_id: canonicalId, job_status: 'completed', $or: [ { completed_at: { $gte: todayStart, $lt: todayEnd } }, { createdAt: { $gte: todayStart, $lt: todayEnd } } ] } },
+						{ $project: { amount: { $convert: { input: { $ifNull: ['$total_amount', '$totalAmount'] }, to: 'double', onError: 0, onNull: 0 } } } },
+						{ $group: { _id: null, total: { $sum: '$amount' } } }
+					]);
+					earningsToday = rows[0]?.total || 0;
+				} catch (e) {
+					console.warn('[DASHBOARD] earningsToday aggregation failed:', e && e.message ? e.message : e);
+					earningsToday = 0;
+				}
+
+				// Final payload
+				res.json({
+						shopName: shop.shopName,
+						isOpen: typeof shop.isOpen === 'boolean' ? shop.isOpen : true,
+						earningsToday,
+						printJobsToday: { totalCompleted: finalTotal, changePercent: finalChange },
+						pendingJobs: pendingNow,
+						printers: { online: onlinePrinters, total: totalPrinters },
+						recentJobs,
+						printerList
+				});
 	} catch (err) {
 		console.error('[DASHBOARD] Error:', err);
 		res.status(500).json({ message: err.message || 'Server error' });
@@ -654,6 +685,145 @@ router.get('/', async (req, res) => {
 	}
 });
 
+// GET /api/shops/:shopId/dailystats  -> return embedded dailystats array (sorted newest first)
+router.get('/:shopId/dailystats', async (req, res) => {
+	try {
+		const shopId = req.params.shopId;
+		const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '30')));
+		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId: shopId }] }).lean();
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		const ds = shop.dailystats || {};
+		const entries = Object.entries(ds).map(([date, obj]) => ({ date, totalJobsCompleted: obj?.totalJobsCompleted ?? obj?.completedCount ?? 0, createdAt: obj?.createdAt })).sort((a,b) => b.date.localeCompare(a.date));
+		return res.json({ success: true, count: entries.length, data: entries.slice(0, limit) });
+	} catch (err) {
+		console.error('[DAILYSTATS] Error:', err);
+		res.status(500).json({ message: err.message });
+	}
+});
+
+
+// GET /api/shops/:shopId/total-revenue -> return hierarchical revenue maps; if ?sum=true, also return total sum of all periods
+router.get('/:shopId/total-revenue', async (req, res) => {
+	try {
+		const shopId = req.params.shopId;
+		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId: shopId }] }).lean();
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		const tr = shop.totalRevenue || { daily: {}, weekly: {}, monthly: {}, yearly: {} };
+					const payload = {
+						daily: tr.daily || {},
+			weekly: tr.weekly || {},
+			monthly: tr.monthly || {},
+			yearly: tr.yearly || {}
+		};
+		if (req.query.sum === 'true') {
+			const sumObj = (obj) => Object.values(obj || {}).reduce((s, v) => s + (v?.totalRevenue || 0), 0);
+			let total = sumObj(payload.daily) + sumObj(payload.weekly) + sumObj(payload.monthly) + sumObj(payload.yearly);
+			// Ensure "till present date": include today's revenue dynamically if today's bucket isn't present yet
+			try {
+				const today = new Date(); today.setHours(0,0,0,0);
+				const todayKey = today.toISOString().slice(0,10);
+				const hasToday = payload.daily && Object.prototype.hasOwnProperty.call(payload.daily, todayKey);
+				if (!hasToday) {
+					const canonical = shop.shop_id || shop.shopId || shopId;
+					const end = new Date();
+					const rows = await FinalJob.aggregate([
+						{ $match: { shop_id: canonical, job_status: 'completed', createdAt: { $gte: today, $lt: end } } },
+						{ $project: { amount: { $cond: [ { $isNumber: '$total_amount' }, '$total_amount', { $convert: { input: '$total_amount', to: 'double', onError: 0, onNull: 0 } } ] } } },
+						{ $group: { _id: null, total: { $sum: '$amount' } } }
+					]);
+					total += rows[0]?.total || 0;
+				}
+			} catch(e) { /* ignore dynamic add failure */ }
+			payload.total = total;
+		}
+		res.json(payload);
+	} catch (err) {
+		console.error('[TOTAL-REVENUE HIER] Error:', err);
+		res.status(500).json({ message: err.message });
+	}
+});
+
+// GET /api/shops/total-revenue -> grand total revenue across all shops (sum of all totalrevenue map values)
+router.get('/total-revenue', async (req, res) => {
+	try {
+		const shops = await NewShop.find({}, { totalRevenue: 1 }).lean();
+		let grand = 0;
+		const sumObj = (obj) => Object.values(obj || {}).reduce((acc, v) => acc + (v?.totalRevenue || 0), 0);
+		for (const s of shops) {
+			const tr = s.totalRevenue || {};
+			grand += sumObj(tr.daily) + sumObj(tr.weekly) + sumObj(tr.monthly) + sumObj(tr.yearly);
+		}
+		res.json({ totalRevenue: grand });
+	} catch (error) {
+		console.error('[TOTAL-REVENUE ALL] Error:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
+});
+
+
+// POST /api/shops/:shopId/dailystats/refresh
+// Recompute and upsert today's completedCount for a specific shop from FinalJob
+router.post('/:shopId/dailystats/refresh', async (req, res) => {
+	try {
+		const shopId = req.params.shopId;
+		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId: shopId }] }).lean();
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		const canonical = shop.shop_id || shop.shopId || shopId;
+		const start = new Date(); start.setHours(0,0,0,0);
+		const end = new Date(start); end.setDate(end.getDate() + 1);
+		const completed = await FinalJob.countDocuments({
+			shop_id: canonical,
+			job_status: 'completed',
+			$or: [
+				{ completed_at: { $gte: start, $lt: end } },
+				{ createdAt: { $gte: start, $lt: end } }
+			]
+		});
+		const dayStr = start.toISOString().slice(0,10);
+		await NewShop.updateOne(
+			{ $or: [{ shop_id: canonical }, { shopId: canonical }] },
+			{ $set: { [`dailystats.${dayStr}.totalJobsCompleted`]: completed, [`dailystats.${dayStr}.createdAt`]: new Date() } }
+		);
+		return res.json({ success: true, shop_id: canonical, date: dayStr, totalJobsCompleted: completed });
+	} catch (err) {
+		console.error('[DAILYSTATS REFRESH] Error:', err);
+		res.status(500).json({ message: err.message });
+	}
+});
+
+// POST /api/admin/dailystats/refresh-all
+// Recompute today's completedCount for all shops (admin convenience)
+router.post('/admin/dailystats/refresh-all', async (req, res) => {
+	try {
+		const shops = await NewShop.find({}, { shop_id: 1, shopId: 1 }).lean();
+		const start = new Date(); start.setHours(0,0,0,0);
+		const end = new Date(start); end.setDate(end.getDate() + 1);
+		const dayStr = start.toISOString().slice(0,10);
+		const results = [];
+		for (const s of shops) {
+			const sid = s.shop_id || s.shopId;
+			if (!sid) continue;
+			const completed = await FinalJob.countDocuments({
+				shop_id: sid,
+				job_status: 'completed',
+				$or: [
+					{ completed_at: { $gte: start, $lt: end } },
+					{ createdAt: { $gte: start, $lt: end } }
+				]
+			});
+			await NewShop.updateOne(
+				{ $or: [{ shop_id: sid }, { shopId: sid }] },
+				{ $set: { [`dailystats.${dayStr}.totalJobsCompleted`]: completed, [`dailystats.${dayStr}.createdAt`]: new Date() } }
+			);
+			results.push({ shop: sid, completed });
+		}
+		return res.json({ success: true, date: dayStr, results });
+	} catch (err) {
+		console.error('[DAILYSTATS REFRESH ALL] Error:', err);
+		res.status(500).json({ message: err.message });
+	}
+});
+
 // GET newshop by ID (move to end of file)
 // ...existing code...
 router.get('/:id', async (req, res) => {
@@ -689,21 +859,75 @@ router.post('/', async (req, res) => {
 		}
 		// Hash password
 		const hashedPassword = await bcrypt.hash(req.body.password, 10);
-		// Ensure pricing field is included if provided
-		const shopData = {
+		// Prepare base data
+		const baseData = {
 			...req.body,
-			password: hashedPassword,
-			shopId: generateShopId(),
-			apiKey: generateApiKey()
+			password: hashedPassword
 		};
-		if (req.body.pricing) {
-			shopData.pricing = req.body.pricing;
+		if (req.body.pricing) baseData.pricing = req.body.pricing;
+
+		// Try to create a shop with a unique shopId. Retry a few times if collisions occur.
+		const MAX_ATTEMPTS = 10;
+		let lastErr = null;
+		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+			const candidateShopId = generateShopId();
+			const candidateApiKey = generateApiKey();
+			// Quick existence check
+			const exists = await NewShop.findOne({ $or: [{ shopId: candidateShopId }, { shop_id: candidateShopId }] }).lean();
+			if (exists) {
+				lastErr = new Error('shopId collision (pre-check)');
+				continue; // try again
+			}
+			const shopData = Object.assign({}, baseData, { shopId: candidateShopId, apiKey: candidateApiKey });
+			const shop = new NewShop(shopData);
+			try {
+				const savedShop = await shop.save();
+				// Generate and persist QR PNG for this shop
+				try {
+					const { generateShopQRFile } = require('../utils/generateShopQRFile');
+					await generateShopQRFile(savedShop.shop_id || savedShop.shopId || candidateShopId);
+				} catch (qrErr) {
+					console.warn('[SHOP CREATE] QR generation warning:', qrErr.message);
+				}
+				return res.status(201).json(savedShop);
+			} catch (err) {
+				// If duplicate key error on save, retry. Otherwise bubble up.
+				if (err && err.code === 11000) {
+					lastErr = err;
+					continue; // try a new id
+				}
+				throw err;
+			}
 		}
-		const shop = new NewShop(shopData);
-		const savedShop = await shop.save();
-		res.status(201).json(savedShop);
+	console.error('[SHOP CREATE] Failed to generate unique shopId after attempts', lastErr);
 	} catch (error) {
 		res.status(400).json({ message: error.message || 'Registration failed' });
+	}
+});
+
+// GET /api/shops/:shop_id/qr - fetch QR URL and direct link
+router.get('/:shop_id/qr', async (req, res) => {
+	try {
+		const id = req.params.shop_id;
+		const shop = await NewShop.findOne({ $or: [{ shop_id: id }, { shopId: id }] });
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		// If QR not yet generated, attempt generation now (best-effort)
+		let qrUrl = shop.qr_code_url;
+		if (!qrUrl) {
+			try {
+				const { generateShopQRFile } = require('../utils/generateShopQRFile');
+				qrUrl = await generateShopQRFile(shop.shop_id || shop.shopId || id);
+			} catch (e) {
+				// ignore and just return without qr
+			}
+		}
+		res.json({
+			success: true,
+			qr_code_url: qrUrl || null,
+			link: `https://www.eazeprint.com/app?shop=${encodeURIComponent(shop.shop_id || shop.shopId || id)}`
+		});
+	} catch (err) {
+		res.status(500).json({ message: err.message });
 	}
 });
 

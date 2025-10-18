@@ -13,7 +13,7 @@ import JobQueue from './pages/partner/JobQueue';
 import PrintHistory from './pages/partner/PrintHistory';
 import PricingManager from './pages/partner/PricingManager';
 import PrinterSettings from './pages/partner/PrinterSettings';
-import Analytics from './pages/partner/Analytics';
+// import Analytics from './pages/partner/Analytics'; // temporarily disabled
 import ShopProfile from './pages/partner/ShopProfile';
 import OnboardingWizard from './pages/partner/OnboardingWizard';
 import ApplyShopPage from './pages/ApplyShopPage';
@@ -75,7 +75,7 @@ function App() {
           <Route path="/print-history" element={<PrintHistory />} />
           <Route path="/pricing" element={<PricingManager />} />
           <Route path="/printers" element={<PrinterSettings />} />
-          <Route path="/analytics" element={<Analytics />} />
+          {/* <Route path="/analytics" element={<Analytics />} /> */}
           <Route path="/profile" element={<ShopProfile />} />
         </Routes>
       </div>

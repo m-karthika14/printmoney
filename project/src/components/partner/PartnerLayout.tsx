@@ -7,7 +7,7 @@ import {
   FileText,
   DollarSign, 
   Settings, 
-  BarChart3, 
+  // BarChart3, 
   User, 
   Menu, 
   X,
@@ -43,7 +43,7 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     { name: 'Print History', href: '/print-history', icon: FileText },
     { name: 'Pricing', href: '/pricing', icon: DollarSign },
     { name: 'Printers', href: '/printers', icon: Settings },
-    { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+    // { name: 'Analytics', href: '/analytics', icon: BarChart3 }, // hidden
     { name: 'Profile', href: '/profile', icon: User },
   ];
 

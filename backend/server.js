@@ -10,7 +10,7 @@ const app = express();
 
 
 // Middleware: CORS with env-configurable allowed origins (comma-separated), supports wildcard like *.onrender.com
-const defaultOrigins = ['http://localhost:3000', 'http://localhost:5173'];
+const defaultOrigins = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'];
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
@@ -19,6 +19,12 @@ if (allowedOrigins.length === 0) allowedOrigins.push(...defaultOrigins);
 
 function originAllowed(origin) {
   if (!origin) return true;
+  // In development, allow any localhost/127.0.0.1 origin (any port)
+  try {
+    const u = new URL(origin);
+    const isLocal = (u.hostname === 'localhost' || u.hostname === '127.0.0.1');
+    if (isLocal && process.env.NODE_ENV !== 'production') return true;
+  } catch {}
   for (const pattern of allowedOrigins) {
     if (pattern === '*') return true;
     if (pattern === origin) return true;
@@ -42,7 +48,14 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static files (for uploaded files)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const uploadsDir = path.join(__dirname, 'uploads');
+try {
+  const qrcodesDir = path.join(uploadsDir, 'qrcodes');
+  if (!require('fs').existsSync(qrcodesDir)) {
+    require('fs').mkdirSync(qrcodesDir, { recursive: true });
+  }
+} catch {}
+app.use('/uploads', express.static(uploadsDir));
 
 
 const shopPrintersRoutes = require('./routes/shopPrinters');
@@ -142,19 +155,17 @@ mongoose.connect(process.env.MONGO_URI, {
     FinalJob.collection.createIndex({ shop_id: 1, job_status: 1, createdAt: 1 }).catch(()=>{});
     // TTL: 24 hours on createdAt
     FinalJob.collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 }).catch(()=>{});
-    const NewShop = require('./models/NewShop');
-    NewShop.collection.createIndex({ shopId: 1 }).catch(()=>{});
-    const DailyShopStats = require('./models/DailyShopStats');
-    DailyShopStats.collection.createIndex({ shop_id: 1, date: 1 }, { unique: true }).catch(()=>{});
+  const NewShop = require('./models/NewShop');
+  NewShop.collection.createIndex({ shopId: 1 }).catch(()=>{});
   } catch (e) {
     console.warn('Index setup warning:', e.message);
   }
 
   // Daily cron at 00:05 local time to snapshot previous day completed counts per shop
   try {
-    const DailyShopStats = require('./models/DailyShopStats');
     const FinalJob = require('./models/FinalJob');
     const NewShop = require('./models/NewShop');
+    // Cron: write previous day's completedCount into each shop's embedded dailystats array
     cron.schedule('5 0 * * *', async () => {
       try {
         const shops = await NewShop.find({}, { shop_id: 1, shopId: 1 }).lean();
@@ -167,18 +178,62 @@ mongoose.connect(process.env.MONGO_URI, {
           if (!sid) continue;
           const start = new Date(prev);
           const end = new Date(prev); end.setDate(end.getDate() + 1);
-          const completed = await FinalJob.countDocuments({ shop_id: sid, job_status: 'completed', createdAt: { $gte: start, $lt: end } });
-          await DailyShopStats.updateOne(
-            { shop_id: sid, date: dayStr },
-            { $set: { completedCount: completed, createdAt: new Date() } },
-            { upsert: true }
+          // Count completed FinalJobs for the calendar day: prefer completed_at, fallback to createdAt
+          const completed = await FinalJob.countDocuments({
+            shop_id: sid,
+            job_status: 'completed',
+            $or: [
+              { completed_at: { $gte: start, $lt: end } },
+              { createdAt: { $gte: start, $lt: end } }
+            ]
+          });
+          // Write to map-style dailystats
+          await NewShop.updateOne(
+            { $or: [{ shop_id: sid }, { shopId: sid }] },
+            { $set: { [`dailystats.${dayStr}.totalJobsCompleted`]: completed, [`dailystats.${dayStr}.createdAt`]: new Date() } }
           );
         }
-        console.log(`[CRON] DailyShopStats updated for ${shops.length} shops on ${dayStr}`);
+          // Aggregation cron at 00:20 to roll daily -> weekly -> monthly -> yearly
+          cron.schedule('20 0 * * *', async () => {
+            try {
+              const { aggregateRevenue } = require('./scripts/aggregateRevenue');
+              await aggregateRevenue();
+              console.log('[CRON][aggregateRevenue] completed');
+            } catch (e) {
+              console.error('[CRON][aggregateRevenue] error:', e.message);
+            }
+          });
+        console.log(`[CRON] Embedded dailystats updated for ${shops.length} shops on ${dayStr}`);
       } catch (err) {
         console.error('[CRON] Daily snapshot failed:', err.message);
       }
     });
+
+      // At 00:10 every day, compute and store previous day's totalRevenue per shop
+      cron.schedule('10 0 * * *', async () => {
+        try {
+          const shops = await NewShop.find({}, { shop_id: 1, shopId: 1 }).lean();
+          const end = new Date(); end.setHours(0,0,0,0); // today 00:00
+          const start = new Date(end); start.setDate(start.getDate() - 1); // yesterday 00:00
+          const dayStr = start.toISOString().slice(0,10);
+          for (const s of shops) {
+            const sid = s.shop_id || s.shopId; if (!sid) continue;
+            const rows = await FinalJob.aggregate([
+              { $match: { shop_id: sid, job_status: 'completed', createdAt: { $gte: start, $lt: end } } },
+              { $project: { amount: { $cond: [ { $isNumber: '$total_amount' }, '$total_amount', { $convert: { input: '$total_amount', to: 'double', onError: 0, onNull: 0 } } ] } } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ]);
+            const total = rows[0]?.total || 0;
+             await NewShop.updateOne(
+               { $or: [{ shop_id: sid }, { shopId: sid }] },
+               { $set: { [`totalRevenue.daily.${dayStr}.totalRevenue`]: total, [`totalRevenue.daily.${dayStr}.createdAt`]: new Date() } }
+             );
+          }
+          console.log('[CRON][totalrevenue] snapshot done for', dayStr);
+        } catch (e) {
+          console.error('[CRON][totalrevenue] error:', e);
+        }
+      });
   } catch (e) {
     console.warn('Cron setup warning:', e.message);
   }

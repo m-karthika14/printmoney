@@ -125,6 +125,11 @@ router.patch('/:id/status', async (req, res) => {
       return res.status(400).json({ message: 'Invalid job_status' });
     }
 
+    // Fetch previous to detect state transition
+    const prev = await FinalJob.findById(req.params.id).lean();
+    if (!prev) return res.status(404).json({ message: 'Job not found' });
+    const wasCompleted = prev.job_status === 'completed';
+
     const update = { job_status };
     if (job_status === 'printing') update.printing_started_at = new Date();
     if (job_status === 'completed') update.completed_at = new Date();
@@ -153,6 +158,27 @@ router.patch('/:id/status', async (req, res) => {
         }
       } catch (e) {
         console.error('[FINALJOB:status] post-complete manualStatus flip failed:', e.message);
+      }
+    }
+    // Increment today's dailystats only on transition into completed (prevent double-count)
+    if (job_status === 'completed' && !wasCompleted && job.shop_id) {
+      try {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const dayStr = today.toISOString().slice(0,10);
+        const setOps = {};
+        setOps[`dailystats.${dayStr}.totalJobsCompleted`] = 1; // will use $inc
+        setOps[`dailystats.${dayStr}.createdAt`] = new Date();
+        await NewShop.updateOne(
+          { $or: [{ shop_id: job.shop_id }, { shopId: job.shop_id }] },
+          {
+            $inc: { [`dailystats.${dayStr}.totalJobsCompleted`]: 1 },
+            $set: { [`dailystats.${dayStr}.createdAt`]: new Date() }
+          },
+          { upsert: false }
+        );
+      } catch (e) {
+        console.error('[FINALJOB:status] dailystats increment failed:', e.message);
       }
     }
   // Socket removed: frontend uses polling

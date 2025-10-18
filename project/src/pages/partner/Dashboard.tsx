@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, Clock, CheckCircle, Printer, DollarSign, FileText, AlertCircle, ClipboardList } from 'lucide-react';
+import { Clock, CheckCircle, Printer, DollarSign, FileText, AlertCircle, ClipboardList } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
 
 type DashboardSnapshot = {
@@ -57,6 +57,15 @@ const Dashboard: React.FC = () => {
       case 'pending': return 'text-gray-600 bg-gray-100';
       default: return 'text-gray-600 bg-gray-100';
     }
+  };
+  const displayCustomer = (c?: any) => {
+    if (!c) return '—';
+    if (typeof c === 'string') return c;
+    if (c.name) return String(c.name);
+    if (c.email) return String(c.email);
+    if (c.phone) return String(c.phone);
+    if (c._id) return String(c._id);
+    try { return JSON.stringify(c); } catch { return '—'; }
   };
 
   return (
@@ -197,7 +206,7 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{job.job_number}</p>
-                      <p className="text-sm text-gray-600">{job.customer || '—'} • {typeof job.copies === 'number' ? job.copies : '—'} copies</p>
+                      <p className="text-sm text-gray-600">{displayCustomer(job.customer)} • {typeof job.copies === 'number' ? job.copies : '—'} copies</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -280,10 +289,12 @@ const Dashboard: React.FC = () => {
               <Printer className="h-8 w-8 text-orange-600 mb-2" />
               <span className="text-sm font-medium text-gray-900">Printer Settings</span>
             </a>
+            {/**
             <a href="/analytics" className="flex flex-col items-center p-4 bg-purple-50 rounded-xl hover:bg-purple-100 transition-colors duration-200">
               <TrendingUp className="h-8 w-8 text-purple-600 mb-2" />
               <span className="text-sm font-medium text-gray-900">View Analytics</span>
             </a>
+            **/}
           </div>
         </motion.div>
       </div>
