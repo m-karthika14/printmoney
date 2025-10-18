@@ -3,10 +3,9 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
-import UploadPage from './pages/UploadPage';
+// UploadPage removed — route will render HomePage as fallback
 import PaymentPage from './pages/PaymentPage';
-import OrderStatusPage from './pages/OrderStatusPage';
-import MyOrdersPage from './pages/MyOrdersPage';
+// Order pages removed
 import PartnerLogin from './pages/partner/PartnerLogin';
 import Dashboard from './pages/partner/Dashboard';
 import JobQueue from './pages/partner/JobQueue';
@@ -34,7 +33,7 @@ function App() {
           <Route path="/upload" element={
             <>
               <Header />
-              <UploadPage />
+              <HomePage />
               <Footer />
             </>
           } />
@@ -48,14 +47,14 @@ function App() {
           <Route path="/order-status/:orderId" element={
             <>
               <Header />
-              <OrderStatusPage />
+                {/* Order status page removed */}
               <Footer />
             </>
           } />
           <Route path="/my-orders" element={
             <>
               <Header />
-              <MyOrdersPage />
+                {/* My Orders page removed */}
               <Footer />
             </>
           } />

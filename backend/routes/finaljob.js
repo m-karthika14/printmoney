@@ -16,9 +16,32 @@ router.post('/assign', async (req, res) => {
   const shop = await NewShop.findOne({ $or: [{ shop_id: shop_id }, { shopId: shop_id }] });
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
     const autoPrintMode = !!shop.autoPrintMode;
+    // If a FinalJob already exists for this job_number, return it (idempotent)
+    const existing = await FinalJob.findOne({ job_number }).lean();
+    if (existing) {
+      return res.status(200).json(existing);
+    }
 
-    // Update Job.printer_status and keep job_status pending
-    await Job.updateOne({ job_number }, { $set: { printer_status: 'alloted', job_status: 'pending' } });
+    // Prevent assigning to a printer that already has an active job
+    const orClauses = [{ printerid }, { assigned_printer: printerid }];
+    if (assigned_printer) {
+      orClauses.push({ assigned_printer });
+      orClauses.push({ printerid: assigned_printer });
+    }
+  const busy = await FinalJob.findOne({ shop_id, $or: orClauses, job_status: { $ne: 'completed' } }).lean();
+    if (busy) {
+      return res.status(409).json({ message: 'Printer already has an active job', busyJob: busy.job_number });
+    }
+
+    // Atomically claim the Job (only if still pending) to avoid races
+    const claimed = await Job.findOneAndUpdate(
+      { job_number, printer_status: 'pending' },
+      { $set: { printer_status: 'alloted', job_status: 'pending' } },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(409).json({ message: 'Job already claimed or not in pending state' });
+    }
 
     const updated = await FinalJob.findOneAndUpdate(
       { job_number },

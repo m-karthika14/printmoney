@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Printer, Menu, X, User } from 'lucide-react';
+import { Printer, Menu, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const Header = () => {
@@ -9,7 +9,6 @@ const Header = () => {
 
   const navItems = [
     { name: 'Home', path: '/' },
-    { name: 'My Orders', path: '/my-orders' },
   ];
 
   return (
@@ -21,7 +20,7 @@ const Header = () => {
             <div className="bg-gradient-to-r from-slate-800 to-slate-600 p-2 rounded-xl">
               <Printer className="h-6 w-6 text-white" />
             </div>
-            <span className="text-2xl font-bold text-slate-800">PrintBeka</span>
+            <span className="text-2xl font-bold text-slate-800">EazePrint</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -45,10 +44,6 @@ const Header = () => {
             >
               Partner Login
             </Link>
-            <div className="flex items-center space-x-2 bg-gray-100 rounded-full px-4 py-2 cursor-pointer hover:bg-gray-200 transition-colors duration-200">
-              <User className="h-4 w-4 text-gray-600" />
-              <span className="text-sm font-medium text-gray-700">Login</span>
-            </div>
           </nav>
 
           {/* Mobile menu button */}
@@ -90,10 +85,6 @@ const Header = () => {
               >
                 Partner Login
               </Link>
-              <div className="flex items-center space-x-2 bg-gray-100 rounded-lg px-4 py-2 mx-4 cursor-pointer hover:bg-gray-200 transition-colors duration-200">
-                <User className="h-4 w-4 text-gray-600" />
-                <span className="text-sm font-medium text-gray-700">Login</span>
-              </div>
             </div>
           </motion.div>
         )}

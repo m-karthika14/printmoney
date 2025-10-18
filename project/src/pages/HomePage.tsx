@@ -1,4 +1,4 @@
-import React from 'react';
+// React import not required with new JSX transform
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Upload, QrCode, Clock, MapPin, Star, ArrowRight, CheckCircle, Shield, Zap } from 'lucide-react';
@@ -26,7 +26,7 @@ const HomePage = () => {
     {
       name: 'Priya Sharma',
       role: 'Student',
-      content: 'PrintBeka saved my exam prep! Uploaded notes at midnight and picked them up early morning.',
+  content: 'EazePrint saved my exam prep! Uploaded notes at midnight and picked them up early morning.',
       rating: 5
     },
     {
@@ -264,7 +264,7 @@ const HomePage = () => {
               Ready to Print Smarter?
             </h2>
             <p className="text-xl text-gray-300">
-              Join thousands of users who trust PrintBeka for their printing needs
+              Join thousands of users who trust EazePrint for their printing needs
             </p>
             <Link to="/upload">
               <motion.button

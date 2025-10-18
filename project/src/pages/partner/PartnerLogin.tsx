@@ -67,7 +67,7 @@ const PartnerLogin = () => {
             <div className="bg-lime-500 p-3 rounded-xl">
               <Printer className="h-8 w-8 text-white" />
             </div>
-            <span className="text-3xl font-bold text-white">PrintBeka</span>
+            <span className="text-3xl font-bold text-white">EazePrint</span>
           </Link>
           <h2 className="text-3xl font-bold text-white mb-2">Partner Login</h2>
           <p className="text-gray-300">Access your print shop dashboard</p>
@@ -220,7 +220,7 @@ const PartnerLogin = () => {
             <p className="text-gray-300">
               New partner?{' '}
               <Link to="/apply" className="text-lime-400 hover:text-lime-300 font-medium">
-                Apply to join PrintBeka
+                Apply to join EazePrint
               </Link>
             </p>
           </div>
@@ -236,7 +236,7 @@ const PartnerLogin = () => {
             to="/"
             className="text-gray-400 hover:text-gray-300 text-sm transition-colors duration-200"
           >
-            ← Back to PrintBeka
+            ← Back to EazePrint
           </Link>
         </motion.div>
       </div>

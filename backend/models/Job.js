@@ -42,38 +42,45 @@ module.exports = mongoose.model("Job", JobSchema, "jobs");
 
 // Sync job updates to FinalJob after allotment
 JobSchema.post('save', async function(doc) {
-  if (doc.job_status === 'assigned' && doc.job_number) {
-    const FinalJob = require('./FinalJob');
-    await FinalJob.findOneAndUpdate(
-      { job_number: doc.job_number },
-      {
-        customer: doc.customer,
-        shop: doc.shop,
-        shop_id: doc.shop_id,
-        document_urls: doc.document_urls,
-        print_options: doc.print_options,
-        total_amount: doc.total_amount,
-        payment_status: doc.payment_status,
-        job_status: doc.job_status,
-        collection_pin: doc.collection_pin,
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-        queued_at: doc.queued_at,
-        status: doc.status,
-        files_processed: doc.files_processed,
-        pages_printed: doc.pages_printed,
-        agent_id: doc.agent_id,
-        processing_started_at: doc.processing_started_at,
-        assigned_printer: doc.assigned_printer,
-        printer_assigned_at: doc.printer_assigned_at,
-        current_file: doc.current_file,
-        printing_started_at: doc.printing_started_at,
-        completed_at: doc.completed_at,
-        printed_by: doc.printed_by,
-        processing_time_seconds: doc.processing_time_seconds,
-        queue_confirmed: doc.queue_confirmed
-      },
-      { new: true }
-    );
+  // Accept both 'alloted' and 'assigned' as meaning the job was claimed/allocated
+  if ((doc.job_status === 'alloted' || doc.job_status === 'assigned') && doc.job_number) {
+    try {
+      const FinalJob = require('./FinalJob');
+      await FinalJob.findOneAndUpdate(
+        { job_number: doc.job_number },
+        {
+          customer: doc.customer,
+          shop: doc.shop,
+          shop_id: doc.shop_id,
+          document_urls: doc.document_urls,
+          print_options: doc.print_options,
+          total_amount: doc.total_amount,
+          payment_status: doc.payment_status,
+          job_status: doc.job_status,
+          collection_pin: doc.collection_pin,
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt,
+          queued_at: doc.queued_at,
+          status: doc.status,
+          files_processed: doc.files_processed,
+          pages_printed: doc.pages_printed,
+          agent_id: doc.agent_id,
+          processing_started_at: doc.processing_started_at,
+          assigned_printer: doc.assigned_printer,
+          printer_assigned_at: doc.printer_assigned_at,
+          current_file: doc.current_file,
+          printing_started_at: doc.printing_started_at,
+          completed_at: doc.completed_at,
+          printed_by: doc.printed_by,
+          processing_time_seconds: doc.processing_time_seconds,
+          queue_confirmed: doc.queue_confirmed
+        },
+        { new: true }
+      );
+    } catch (e) {
+      console.error('[Job model hook] sync to FinalJob failed:', e.message);
+    }
   }
 });
+
+module.exports = mongoose.model("Job", JobSchema, "jobs");

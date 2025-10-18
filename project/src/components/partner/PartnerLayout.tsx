@@ -37,6 +37,18 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     fetchShop();
   }, []);
 
+  const handleSignOut = () => {
+    // Clear known auth/shop tokens and redirect to login
+    try {
+      localStorage.removeItem('shop_id');
+      localStorage.removeItem('shopId');
+      localStorage.removeItem('auth_token');
+    } catch (e) {
+      // ignore
+    }
+    window.location.href = '/partner-login';
+  };
+
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Job Queue', href: '/job-queue', icon: ClipboardList },
@@ -68,7 +80,7 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <div className="bg-lime-500 p-2 rounded-lg">
               <Printer className="h-6 w-6 text-white" />
             </div>
-            <span className="text-xl font-bold text-white">PrintBeka</span>
+            <span className="text-xl font-bold text-white">EazePrint</span>
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -101,10 +113,10 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
 
           <div className="mt-8 pt-8 border-t border-slate-700">
-            <button className="group flex items-center w-full px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-slate-700 hover:text-white transition-colors duration-200">
-              <LogOut className="mr-3 h-5 w-5" />
-              Sign Out
-            </button>
+            <button onClick={handleSignOut} className="group flex items-center w-full px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-slate-700 hover:text-white transition-colors duration-200">
+                <LogOut className="mr-3 h-5 w-5" />
+                Sign Out
+              </button>
           </div>
         </nav>
       </div>

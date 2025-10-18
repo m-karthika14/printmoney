@@ -17,14 +17,19 @@ function matchesPrinter(job, printer) {
   if (printer.manualStatus === 'off' || printer.manualStatus === 'pending_off') return false; // respect shopkeeper toggle & pending
   const source = printer.useAgentValues ? printer.agentDetected : printer.manualOverride;
   if (!source || !Array.isArray(source.capabilities) || source.capabilities.length === 0) return false;
-  const caps = source.capabilities[0] || {};
   const needColor = jobRequiresColor(job.print_options || {});
   const needDuplex = jobRequiresDuplex(job.print_options || {});
   const requiredSize = job.print_options?.paperSize;
-  const typeOk = needColor ? (caps.type === 'Color' || caps.type === 'Color+B/W') : true;
-  const duplexOk = needDuplex ? !!caps.duplex : true;
-  const sizeOk = requiredSize ? (Array.isArray(caps.paperSizes) && caps.paperSizes.includes(requiredSize)) : true;
-  return typeOk && duplexOk && sizeOk;
+
+  // Capabilities may contain multiple entries; accept if any capability satisfies requirements
+  const capsArray = Array.isArray(source.capabilities) ? source.capabilities : [];
+  for (const caps of capsArray) {
+    const typeOk = needColor ? (String(caps.type).toLowerCase().includes('color')) : true;
+    const duplexOk = needDuplex ? !!caps.duplex : true;
+    const sizeOk = requiredSize ? (Array.isArray(caps.paperSizes) && caps.paperSizes.includes(requiredSize)) : true;
+    if (typeOk && duplexOk && sizeOk) return true;
+  }
+  return false;
 }
 
 async function pollJobsAndAssignPrinters(shopIdFilter) {
@@ -58,10 +63,29 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
     let selected = null;
     for (const cand of candidates) {
       const pid = cand.printerid || cand.printerId;
+      const pname = (cand.agentDetected && cand.agentDetected.name) || (cand.manualOverride && cand.manualOverride.name);
+
+      // Build OR clauses only for truthy identifiers
+      const orClauses = [];
+      if (pid) {
+        orClauses.push({ printerid: pid });
+        orClauses.push({ assigned_printer: pid });
+      }
+      if (pname) {
+        orClauses.push({ assigned_printer: pname });
+        orClauses.push({ printerid: pname });
+      }
+
+      // If we don't have any identifier to check against, be conservative and treat as busy
+      if (orClauses.length === 0) {
+        console.warn(`[JobPoller] Printer ${JSON.stringify(cand)} has no id or name; treating as busy to avoid duplicate allocations.`);
+        continue;
+      }
+
       const active = await FinalJob.findOne({
         shop_id: job.shop_id,
-        $or: [ { printerid: pid }, { assigned_printer: pid } ],
-        job_status: { $in: ['pending','printing','alloted'] }
+        $or: orClauses,
+        job_status: { $ne: 'completed' }
       }).lean();
       if (!active) { selected = cand; break; }
     }
@@ -106,23 +130,29 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
       updatedAt: new Date(),
     };
 
+    // Atomically claim the Job document so concurrent pollers won't double-assign
+    const claimedJob = await Job.findOneAndUpdate(
+      { _id: job._id, printer_status: 'pending' },
+      { $set: { printer_status: 'alloted', job_status: 'pending', assigned_printer: assignedName, printer_assigned_at: new Date() } },
+      { new: true }
+    );
+    if (!claimedJob) {
+      console.log(`[JobPoller] Job ${job.job_number} was already claimed by another process; skipping.`);
+      continue;
+    }
+
     // Upsert to finaljobs keyed by job_number
     const res = await FinalJob.updateOne(
       { job_number: job.job_number },
       { $set: upsertData },
       { upsert: true }
     );
-    // Update job with printer_status and keep job_status pending
-    await Job.updateOne(
-      { _id: job._id },
-      { $set: { printer_status: 'alloted', job_status: 'pending', assigned_printer: assignedName, printer_assigned_at: new Date() } }
-    );
     console.log(`[JOB-ALLOC] ShopId: ${job.shop_id}, Job: ${job.job_number}, Printer: ${assignedName}, Mode: ${!!shop.autoPrintMode ? 'Auto' : 'Manual'}`);
   }
 
   // Reconcile: any printers stuck in pending_off but with no active jobs → set to off
   try {
-    const shops = await NewShop.find({ 'printers.manualStatus': 'pending_off' });
+  const shops = await NewShop.find({ 'printers.manualStatus': 'pending_off' });
     for (const shop of shops) {
       let changed = false;
       for (const p of (shop.printers || [])) {
@@ -136,7 +166,7 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
             { assigned_printer: pid },
             ...(pname ? [{ assigned_printer: pname }] : [])
           ],
-          job_status: { $in: ['pending','printing','alloted','processing'] }
+          job_status: { $ne: 'completed' }
         }).lean();
         if (!active) {
           p.manualStatus = 'off';

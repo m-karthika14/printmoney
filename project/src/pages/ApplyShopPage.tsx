@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
@@ -49,7 +49,7 @@ const ApplyShopPage: React.FC = () => {
             transition={{ duration: 0.8 }}
             className="text-3xl md:text-4xl font-bold mb-2"
           >
-            Apply to <span className="text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400">PrintBeka</span>
+            Apply to <span className="text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400">EazePrint</span>
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
