@@ -61,7 +61,7 @@ const OnboardingWizard: React.FC = () => {
   const [agentSuccess, setAgentSuccess] = useState(false);
   
   // Step 3: Printer Detection
-  const [detectedPrinters, setDetectedPrinters] = useState<{ id: string; name: string; model: string; capabilities: string[] }[]>([]);
+  const [detectedPrinters] = useState<{ id: string; name: string; model: string; capabilities: string[] }[]>([]);
   const [printerOverrides, setPrinterOverrides] = useState<Record<string, PrinterOverride>>({});
   const [editingPrinter, setEditingPrinter] = useState<string | null>(null);
   
@@ -410,20 +410,20 @@ const OnboardingWizard: React.FC = () => {
                   isCompleted 
                     ? 'bg-gradient-to-r from-green-500 to-green-600 text-white transform scale-110' 
                     : isCurrent 
-                      ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white transform scale-110 shadow-blue-200' 
+                      ? 'bg-gradient-to-r from-lime-400 to-lime-500 text-white transform scale-110 shadow-lime-200' 
                       : 'bg-white text-gray-400 border-2 border-gray-200'
                 }`}>
                   {isCompleted ? <Check className="w-7 h-7" /> : <StepIcon className="w-7 h-7" />}
                 </div>
                 <span className={`mt-3 text-sm font-semibold transition-colors duration-300 ${
-                  isCompleted ? 'text-green-600' : isCurrent ? 'text-blue-600' : 'text-gray-400'
+                  isCompleted ? 'text-green-600' : isCurrent ? 'text-lime-600' : 'text-gray-400'
                 }`}>
                   {step.title}
                 </span>
               </div>
               {index < steps.length - 1 && (
-                <div className={`w-20 h-1 mx-4 rounded-full transition-all duration-500 ${
-                  isCompleted ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gray-200'
+                <div className={`w-20 h-1 mx-4 rounded-full transition-all duration-500 self-center ${
+                  isCompleted ? 'bg-gradient-to-r from-green-500 to-green-600' : isCurrent ? 'bg-gradient-to-r from-lime-400 to-lime-500' : 'bg-gray-200'
                 }`} />
               )}
             </React.Fragment>
@@ -443,12 +443,12 @@ const OnboardingWizard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
         {pricingPlans.map((plan) => (
           <div key={plan.id} className={`relative bg-white rounded-2xl border-2 p-8 transition-all duration-300 hover:shadow-2xl cursor-pointer transform hover:-translate-y-2 ${
-            selectedPlan === plan.id ? 'border-blue-500 shadow-2xl shadow-blue-100 scale-105' : 'border-gray-200 hover:border-blue-300'
-          } ${plan.recommended ? 'ring-4 ring-blue-500 ring-offset-4' : ''}`}
+            selectedPlan === plan.id ? 'border-lime-500 shadow-2xl shadow-lime-100 scale-105' : 'border-gray-200 hover:border-lime-300'
+          }`}
           onClick={() => setSelectedPlan(plan.id)}>
             {plan.recommended && (
               <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                <span className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg">
+                <span className="bg-gradient-to-r from-lime-400 to-lime-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg">
                   Most Popular
                 </span>
               </div>
@@ -456,7 +456,7 @@ const OnboardingWizard: React.FC = () => {
             <div className="text-center">
               <h3 className="text-2xl font-bold text-gray-900">{plan.name}</h3>
               <div className="mt-4">
-                <span className="text-5xl font-bold text-gray-900">${plan.price}</span>
+                <span className="text-5xl font-bold text-gray-900">₹{plan.price}</span>
                 <span className="text-xl text-gray-500">{plan.period}</span>
               </div>
             </div>
@@ -490,22 +490,22 @@ const OnboardingWizard: React.FC = () => {
             {/* Net Banking Card */}
             <div
               className={`bg-white border-2 rounded-xl p-6 cursor-pointer transition-all duration-300 flex flex-col items-center hover:shadow-lg ${
-                selectedPaymentMethod === 'netbanking' ? 'border-blue-500 ring-2 ring-blue-300 scale-105' : 'border-gray-200 hover:border-blue-400'
+                selectedPaymentMethod === 'netbanking' ? 'border-lime-500 ring-2 ring-lime-300 scale-105' : 'border-gray-200 hover:border-lime-500'
               }`}
               onClick={() => setSelectedPaymentMethod('netbanking')}
             >
-              <Building2 className="w-10 h-10 mb-2 text-blue-500" />
+              <Building2 className="w-10 h-10 mb-2 text-lime-500" />
               <h4 className="font-semibold text-gray-900">Net Banking</h4>
               <p className="text-sm text-gray-500 text-center">Pay using your bank account</p>
             </div>
             {/* Card Payment Card */}
             <div
               className={`bg-white border-2 rounded-xl p-6 cursor-pointer transition-all duration-300 flex flex-col items-center hover:shadow-lg ${
-                selectedPaymentMethod === 'card' ? 'border-emerald-500 ring-2 ring-emerald-300 scale-105' : 'border-gray-200 hover:border-emerald-400'
+                selectedPaymentMethod === 'card' ? 'border-lime-500 ring-2 ring-lime-300 scale-105' : 'border-gray-200 hover:border-lime-400'
               }`}
               onClick={() => setSelectedPaymentMethod('card')}
             >
-              <CardIcon className="w-10 h-10 mb-2 text-emerald-500" />
+              <CardIcon className="w-10 h-10 mb-2 text-lime-500" />
               <h4 className="font-semibold text-gray-900">Credit/Debit Card</h4>
               <p className="text-sm text-gray-500 text-center">Pay using your card</p>
             </div>
@@ -530,10 +530,10 @@ const OnboardingWizard: React.FC = () => {
             </div>
           )}
           {selectedPaymentMethod === 'netbanking' && (
-            <div className="bg-white border-2 border-blue-200 rounded-xl p-6 mb-8 animate-fadeIn">
-              <h4 className="text-lg font-bold mb-4 flex items-center"><Building2 className="w-6 h-6 mr-2 text-blue-500" /> Net Banking</h4>
+            <div className="bg-white border-2 border-lime-200 rounded-xl p-6 mb-8 animate-fadeIn">
+              <h4 className="text-lg font-bold mb-4 flex items-center"><Building2 className="w-6 h-6 mr-2 text-lime-500" /> Net Banking</h4>
               <label className="block text-sm font-semibold mb-2">Select Your Bank</label>
-              <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-400 focus:outline-none text-slate-800 bg-gray-50 font-medium mb-4" placeholder="Search bank..." />
+              <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium mb-4" placeholder="Search bank..." />
               <select className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 font-medium">
                 <option>State Bank of India</option>
                 <option>HDFC Bank</option>
@@ -546,30 +546,30 @@ const OnboardingWizard: React.FC = () => {
                 <option>Union Bank of India</option>
                 <option>Other...</option>
               </select>
-              <button className="w-full mt-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white py-2 rounded-xl font-semibold">Proceed to Bank</button>
+              <button className="w-full mt-4 bg-gradient-to-r from-emerald-500 to-lime-600 text-white py-2 rounded-xl font-semibold">Proceed to Bank</button>
             </div>
           )}
           {selectedPaymentMethod === 'card' && (
-            <div className="bg-white border-2 border-emerald-200 rounded-xl p-6 mb-8 animate-fadeIn">
-              <h4 className="text-lg font-bold mb-4 flex items-center"><CardIcon className="w-6 h-6 mr-2 text-emerald-500" /> Credit/Debit Card</h4>
+            <div className="bg-white border-2 border-lime-200 rounded-xl p-6 mb-8 animate-fadeIn">
+              <h4 className="text-lg font-bold mb-4 flex items-center"><CardIcon className="w-6 h-6 mr-2 text-lime-500" /> Credit/Debit Card</h4>
               <form className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold mb-2">Card Number</label>
-                  <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="1234 5678 9012 3456" maxLength={19} />
+                  <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="1234 5678 9012 3456" maxLength={19} />
                 </div>
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <label className="block text-sm font-semibold mb-2">Expiry</label>
-                    <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="MM/YY" maxLength={5} />
+                    <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="MM/YY" maxLength={5} />
                   </div>
                   <div className="flex-1">
                     <label className="block text-sm font-semibold mb-2">CVV</label>
-                    <input type="password" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="123" maxLength={4} />
+                    <input type="password" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="123" maxLength={4} />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-2">Cardholder Name</label>
-                  <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="Your Name" />
+                  <input type="text" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium" placeholder="Your Name" />
                 </div>
                 <button className="w-full bg-gradient-to-r from-emerald-500 to-lime-500 text-white py-2 rounded-xl font-semibold">Pay Securely</button>
               </form>
@@ -580,9 +580,9 @@ const OnboardingWizard: React.FC = () => {
             <div className="text-center">
               <button 
                 onClick={processPayment}
-                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                className="bg-gradient-to-r from-emerald-500 to-lime-600 hover:from-emerald-600 hover:to-lime-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
               >
-                Pay ${pricingPlans.find(p => p.id === selectedPlan)?.price} Now
+                Pay ₹{pricingPlans.find(p => p.id === selectedPlan)?.price} Now
               </button>
             </div>
           )}
@@ -648,7 +648,7 @@ const OnboardingWizard: React.FC = () => {
             <div className="text-center mt-8">
               <button 
                 onClick={closeCredentialsModal}
-                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition-all duration-300"
+                className="bg-gradient-to-r from-emerald-500 to-lime-600 hover:from-emerald-600 hover:to-lime-700 text-white font-semibold py-3 px-8 rounded-lg transition-all duration-300"
               >
                 Continue Setup
               </button>
@@ -710,32 +710,32 @@ const OnboardingWizard: React.FC = () => {
       <div className="max-w-4xl mx-auto">
         <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 shadow-lg">
           <div className="flex items-center mb-6">
-            <Download className="w-8 h-8 text-blue-500 mr-4" />
+            <Download className="w-8 h-8 text-lime-500 mr-4" />
             <h3 className="text-2xl font-bold text-gray-900">Agent Installation Instructions</h3>
           </div>
           <div className="space-y-6">
             <div className="flex items-start space-x-4">
-              <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">1</div>
+              <div className="w-10 h-10 bg-lime-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">1</div>
               <div className="flex-1">
                 <p className="text-lg font-semibold text-gray-900">Download the Print Agent</p>
                 <p className="text-gray-600 mb-4">Download the agent for your operating system</p>
-                <button className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300">
+                <button className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300">
                   Download for Windows
                 </button>
               </div>
             </div>
             <div className="flex items-start space-x-4">
-              <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">2</div>
+              <div className="w-10 h-10 bg-lime-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">2</div>
               <div className="flex-1">
                 <p className="text-lg font-semibold text-gray-900">Install and Configure</p>
                 <p className="text-gray-600">Run the installer and enter your Shop ID:</p>
                 <div className="mt-2 bg-gray-100 p-3 rounded-lg">
-                  <code className="text-lg font-mono text-blue-600">{shopId}</code>
+                  <code className="text-lg font-mono text-lime-600">{shopId}</code>
                 </div>
               </div>
             </div>
             <div className="flex items-start space-x-4">
-              <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">3</div>
+              <div className="w-10 h-10 bg-lime-500 text-white rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0">3</div>
               <div className="flex-1">
                 <p className="text-lg font-semibold text-gray-900">Verify Connection</p>
                 <p className="text-gray-600">The agent will automatically detect and connect your printers</p>
@@ -747,7 +747,7 @@ const OnboardingWizard: React.FC = () => {
             <div className="mt-10 text-center">
               <button 
                 onClick={handleAgentInstall}
-                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
+                className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
                 disabled={agentLoading}
               >
                 {agentLoading && (
@@ -760,19 +760,19 @@ const OnboardingWizard: React.FC = () => {
           )}
 
           {agentSuccess && (
-            <div className="mt-10 bg-green-50 border-2 border-green-200 rounded-xl p-6 text-center animate-fadeIn">
-              <Check className="w-8 h-8 text-green-500 mx-auto mb-3" />
-              <p className="text-green-800 font-bold text-lg">Agent installed successfully 🎉</p>
+            <div className="mt-10 bg-lime-50 border-2 border-lime-200 rounded-xl p-6 text-center animate-fadeIn">
+              <Check className="w-8 h-8 text-lime-500 mx-auto mb-3" />
+              <p className="text-lime-800 font-bold text-lg">Agent installed successfully 🎉</p>
             </div>
           )}
 
           {agentInstalled && !agentSuccess && (
-            <div className="mt-10 bg-green-50 border-2 border-green-200 rounded-xl p-6 text-center">
-              <Check className="w-8 h-8 text-green-500 mx-auto mb-3" />
-              <p className="text-green-800 font-bold text-lg">Agent installed successfully!</p>
+            <div className="mt-10 bg-lime-50 border-2 border-lime-200 rounded-xl p-6 text-center">
+              <Check className="w-8 h-8 text-lime-500 mx-auto mb-3" />
+              <p className="text-lime-800 font-bold text-lg">Agent installed successfully!</p>
               <button 
                 onClick={nextStep}
-                className="mt-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 inline-flex items-center"
+                className="mt-6 bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 inline-flex items-center"
               >
                 Continue <ArrowRight className="w-6 h-6 ml-2" />
               </button>
@@ -798,14 +798,14 @@ const OnboardingWizard: React.FC = () => {
                 <Printer className="w-8 h-8 text-blue-500 mr-4" />
                 <h3 className="text-2xl font-bold text-gray-900">{printer.name}</h3>
               </div>
-              <span className="bg-green-100 text-green-800 px-4 py-2 rounded-full text-sm font-semibold">Connected</span>
+              <span className="bg-lime-100 text-lime-800 px-4 py-2 rounded-full text-sm font-semibold">Connected</span>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Manual Override Card */}
-              <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
+              <div className="bg-lime-50 border-2 border-lime-200 rounded-xl p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h4 className="text-xl font-bold text-blue-900">Manual Override</h4>
+                  <h4 className="text-xl font-bold text-lime-900">Manual Override</h4>
                   <button
                     onClick={() => setEditingPrinter(editingPrinter === printer.id ? null : printer.id)}
                     className={`flex items-center px-4 py-2 rounded-lg font-semibold transition-all duration-300 ${
@@ -932,38 +932,38 @@ const OnboardingWizard: React.FC = () => {
               </div>
 
               {/* Agent Detected Card */}
-              <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6">
-                <h4 className="text-xl font-bold text-green-900 mb-6">Agent Detected Values</h4>
+              <div className="bg-lime-50 border-2 border-lime-200 rounded-xl p-6">
+                <h4 className="text-xl font-bold text-lime-900 mb-6">Agent Detected Values</h4>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-semibold text-green-800 mb-2">Printer Name</label>
-                    <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
+                    <label className="block text-sm font-semibold text-lime-800 mb-2">Printer Name</label>
+                    <div className="w-full px-4 py-3 border-2 border-lime-200 bg-lime-100 rounded-lg text-lime-900 font-medium">
                       {printer.name}
                     </div>
-                    <p className="text-xs text-green-600 mt-1">Auto-detected by agent</p>
+                    <p className="text-xs text-lime-600 mt-1">Auto-detected by agent</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-green-800 mb-2">Model</label>
-                    <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
+                    <label className="block text-sm font-semibold text-lime-800 mb-2">Model</label>
+                    <div className="w-full px-4 py-3 border-2 border-lime-200 bg-lime-100 rounded-lg text-lime-900 font-medium">
                       {printer.model}
                     </div>
-                    <p className="text-xs text-green-600 mt-1">Auto-detected by agent</p>
+                    <p className="text-xs text-lime-600 mt-1">Auto-detected by agent</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-green-800 mb-2">Capability Type</label>
-                    <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
+                    <label className="block text-sm font-semibold text-lime-800 mb-2">Capability Type</label>
+                    <div className="w-full px-4 py-3 border-2 border-lime-200 bg-lime-100 rounded-lg text-lime-900 font-medium">
                       {printer.capabilities.includes("Color") ? "Color" : "B/W"}
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-green-800 mb-2">Duplex</label>
-                    <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
+                    <label className="block text-sm font-semibold text-lime-800 mb-2">Duplex</label>
+                    <div className="w-full px-4 py-3 border-2 border-lime-200 bg-lime-100 rounded-lg text-lime-900 font-medium">
                       {printer.capabilities.includes("Duplex") ? "Yes" : "No"}
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-green-800 mb-2">Paper Sizes</label>
-                    <div className="w-full px-4 py-3 border-2 border-green-200 bg-green-100 rounded-lg text-green-900 font-medium">
+                    <label className="block text-sm font-semibold text-lime-800 mb-2">Paper Sizes</label>
+                    <div className="w-full px-4 py-3 border-2 border-lime-200 bg-lime-100 rounded-lg text-lime-900 font-medium">
                       {"A4, Letter"}
                     </div>
                   </div>
@@ -976,7 +976,7 @@ const OnboardingWizard: React.FC = () => {
         <div className="text-center">
           <button 
             onClick={nextStep}
-            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
+            className="mt-32 bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
           >
             Continue <ArrowRight className="w-6 h-6 ml-2" />
           </button>
@@ -993,21 +993,20 @@ const OnboardingWizard: React.FC = () => {
       </div>
 
       <div className="max-w-3xl mx-auto">
-        <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 shadow-lg">
+        <div className="bg-white border-2 border-lime-200 rounded-2xl p-8 shadow-lg">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-2">
               <label className="block text-lg font-bold text-gray-800 mb-3">
                 B&W Single Side (per page)
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">$</span>
+                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">₹</span>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
                   value={pricing.bwSingle}
                   onChange={(e) => setPricing(prev => ({ ...prev, bwSingle: e.target.value }))}
-                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg transition-all duration-300"
-                  placeholder="0.10"
+                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-lg transition-all duration-300"
+                  placeholder="2"
                 />
               </div>
             </div>
@@ -1017,14 +1016,13 @@ const OnboardingWizard: React.FC = () => {
                 Color Single Side (per page)
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">$</span>
+                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">₹</span>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
                   value={pricing.colorSingle}
                   onChange={(e) => setPricing(prev => ({ ...prev, colorSingle: e.target.value }))}
-                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg transition-all duration-300"
-                  placeholder="0.25"
+                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-lg transition-all duration-300"
+                  placeholder="5"
                 />
               </div>
             </div>
@@ -1034,14 +1032,13 @@ const OnboardingWizard: React.FC = () => {
                 B&W Double Side (per page)
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">$</span>
+                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">₹</span>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
                   value={pricing.bwDouble}
                   onChange={(e) => setPricing(prev => ({ ...prev, bwDouble: e.target.value }))}
-                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg transition-all duration-300"
-                  placeholder="0.15"
+                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-lg transition-all duration-300"
+                  placeholder="3"
                 />
               </div>
             </div>
@@ -1051,14 +1048,13 @@ const OnboardingWizard: React.FC = () => {
                 Color Double Side (per page)
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">$</span>
+                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 text-lg">₹</span>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
                   value={pricing.colorDouble}
                   onChange={(e) => setPricing(prev => ({ ...prev, colorDouble: e.target.value }))}
-                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg transition-all duration-300"
-                  placeholder="0.40"
+                  className="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-lime-500 text-lg transition-all duration-300"
+                  placeholder="8"
                 />
               </div>
             </div>
@@ -1067,7 +1063,7 @@ const OnboardingWizard: React.FC = () => {
           <div className="mt-12 text-center">
             <button 
               onClick={nextStep}
-              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
+              className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-600 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
             >
               Continue <ArrowRight className="w-6 h-6 ml-2" />
             </button>
@@ -1088,7 +1084,7 @@ const OnboardingWizard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
           {services.map((service) => (
             <div key={service.id} className={`bg-white border-2 rounded-xl p-6 transition-all duration-300 transform hover:scale-105 ${
-              service.selected ? 'border-blue-500 bg-blue-50 shadow-lg shadow-blue-100' : 'border-gray-200 hover:border-blue-300 hover:shadow-lg'
+              service.selected ? 'border-lime-500 bg-lime-50 shadow-lg shadow-lime-100' : 'border-gray-200 hover:border-lime-300 hover:shadow-lg'
             }`}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-gray-900 text-lg">{service.name}</h3>
@@ -1096,8 +1092,8 @@ const OnboardingWizard: React.FC = () => {
                   onClick={() => toggleService(service.id)}
                   className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
                     service.selected 
-                      ? 'bg-blue-500 border-blue-500 text-white transform scale-110' 
-                      : 'border-gray-300 hover:border-blue-500'
+                      ? 'bg-lime-500 border-lime-500 text-white transform scale-110' 
+                      : 'border-gray-300 hover:border-lime-500'
                   }`}
                 >
                   {service.selected && <Check className="w-5 h-5" />}
@@ -1108,14 +1104,13 @@ const OnboardingWizard: React.FC = () => {
                 <div className="mt-4 animate-fadeIn">
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Price</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">₹</span>
                     <input
-                      type="number"
-                      step="0.01"
+                      type="text"
                       value={service.price}
                       onChange={(e) => updateServicePrice(service.id, e.target.value)}
-                      className="w-full pl-8 pr-3 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300"
-                      placeholder="0.00"
+                      className="w-full pl-8 pr-3 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-lime-500 transition-all duration-300"
+                      placeholder="10"
                     />
                   </div>
                 </div>
@@ -1129,7 +1124,7 @@ const OnboardingWizard: React.FC = () => {
             <h3 className="text-2xl font-bold text-gray-900">Custom Services</h3>
             <button
               onClick={addCustomService}
-              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-6 py-3 rounded-xl font-semibold inline-flex items-center transition-all duration-300 transform hover:scale-105"
+              className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white px-6 py-3 rounded-xl font-semibold inline-flex items-center transition-all duration-300 transform hover:scale-105"
             >
               <Plus className="w-5 h-5 mr-2" />
               Add Custom Service
@@ -1145,17 +1140,16 @@ const OnboardingWizard: React.FC = () => {
                     value={service.name}
                     onChange={(e) => updateCustomService(service.id, 'name', e.target.value)}
                     placeholder="Service name"
-                    className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300"
+                    className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-lime-500 transition-all duration-300"
                   />
                   <div className="relative w-40">
-                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">₹</span>
                     <input
-                      type="number"
-                      step="0.01"
+                      type="text"
                       value={service.price}
                       onChange={(e) => updateCustomService(service.id, 'price', e.target.value)}
-                      placeholder="0.00"
-                      className="w-full pl-8 pr-3 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300"
+                      placeholder="10"
+                      className="w-full pl-8 pr-3 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-lime-500 transition-all duration-300"
                     />
                   </div>
                   <button
@@ -1173,7 +1167,7 @@ const OnboardingWizard: React.FC = () => {
         <div className="text-center">
           <button 
             onClick={nextStep}
-            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
+            className="mt-8 bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
           >
             Continue <ArrowRight className="w-6 h-6 ml-2" />
           </button>
@@ -1198,13 +1192,13 @@ const OnboardingWizard: React.FC = () => {
             {/* Plan & Payment */}
             <div className="p-8">
               <h3 className="text-2xl font-bold mb-4 flex items-center">
-                <CreditCard className="w-6 h-6 mr-3 text-blue-500" />
+                <CreditCard className="w-6 h-6 mr-3 text-lime-500" />
                 Plan & Payment
               </h3>
               <div className="text-gray-700 space-y-2">
-                <p className="text-lg">Selected Plan: <span className="font-bold text-blue-600">{selectedPlanDetails?.name}</span></p>
-                <p className="text-lg">Price: <span className="font-bold">${selectedPlanDetails?.price}{selectedPlanDetails?.period}</span></p>
-                <p className="text-green-600 font-bold text-lg">✅ Payment Processed Successfully</p>
+                <p className="text-lg">Selected Plan: <span className="font-bold text-lime-600">{selectedPlanDetails?.name}</span></p>
+                <p className="text-lg">Price: <span className="font-bold">₹{selectedPlanDetails?.price}{selectedPlanDetails?.period}</span></p>
+                <p className="text-lime-600 font-bold text-lg">✅ Payment Processed Successfully</p>
               </div>
             </div>
 
@@ -1226,7 +1220,7 @@ const OnboardingWizard: React.FC = () => {
             {/* Printers */}
             <div className="p-8">
               <h3 className="text-2xl font-bold mb-4 flex items-center">
-                <Printer className="w-6 h-6 mr-3 text-blue-500" />
+                <Printer className="w-6 h-6 mr-3 text-lime-500" />
                 Configured Printers
               </h3>
               <div className="space-y-3">
@@ -1240,7 +1234,7 @@ const OnboardingWizard: React.FC = () => {
                         ({printerOverrides[printer.id]?.model || printer.model})
                       </span>
                     </span>
-                    <span className="text-green-600 font-bold">✅ Connected</span>
+                    <span className="text-lime-600 font-bold">Connected</span>
                   </div>
                 ))}
               </div>
@@ -1249,25 +1243,25 @@ const OnboardingWizard: React.FC = () => {
             {/* Pricing */}
             <div className="p-8">
               <h3 className="text-2xl font-bold mb-4 flex items-center">
-                <DollarSign className="w-6 h-6 mr-3 text-blue-500" />
+                <DollarSign className="w-6 h-6 mr-3 text-lime-500" />
                 Print Pricing
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div className="bg-gray-50 p-4 rounded-xl text-center">
                   <span className="text-sm font-semibold text-gray-600">B&W Single:</span>
-                  <p className="text-xl font-bold text-blue-600">${pricing.bwSingle}/page</p>
+                  <p className="text-xl font-bold text-lime-600">₹{pricing.bwSingle}/page</p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-xl text-center">
                   <span className="text-sm font-semibold text-gray-600">Color Single:</span>
-                  <p className="text-xl font-bold text-blue-600">${pricing.colorSingle}/page</p>
+                  <p className="text-xl font-bold text-lime-600">₹{pricing.colorSingle}/page</p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-xl text-center">
                   <span className="text-sm font-semibold text-gray-600">B&W Double:</span>
-                  <p className="text-xl font-bold text-blue-600">${pricing.bwDouble}/page</p>
+                  <p className="text-xl font-bold text-lime-600">₹{pricing.bwDouble}/page</p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-xl text-center">
                   <span className="text-sm font-semibold text-gray-600">Color Double:</span>
-                  <p className="text-xl font-bold text-blue-600">${pricing.colorDouble}/page</p>
+                  <p className="text-xl font-bold text-lime-600">₹{pricing.colorDouble}/page</p>
                 </div>
               </div>
             </div>
@@ -1275,20 +1269,20 @@ const OnboardingWizard: React.FC = () => {
             {/* Services */}
             <div className="p-8">
               <h3 className="text-2xl font-bold mb-4 flex items-center">
-                <Settings className="w-6 h-6 mr-3 text-blue-500" />
+                <Settings className="w-6 h-6 mr-3 text-lime-500" />
                 Selected Services ({selectedServices.length + customServices.length})
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {selectedServices.map((service) => (
                   <div key={service.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-xl">
                     <span className="font-medium">{service.name}</span>
-                    <span className="font-bold text-blue-600">${service.price}</span>
+                    <span className="font-bold text-lime-600">₹{service.price}</span>
                   </div>
                 ))}
                 {customServices.map((service) => (
-                  <div key={service.id} className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-200">
-                    <span className="font-medium">{service.name} <span className="text-xs text-blue-600">(Custom)</span></span>
-                    <span className="font-bold text-blue-600">${service.price}</span>
+                  <div key={service.id} className="flex justify-between items-center bg-lime-50 p-4 rounded-xl border border-lime-200">
+                    <span className="font-medium">{service.name} <span className="text-xs text-lime-600">(Custom)</span></span>
+                    <span className="font-bold text-lime-600">₹{service.price}</span>
                   </div>
                 ))}
               </div>
@@ -1298,7 +1292,7 @@ const OnboardingWizard: React.FC = () => {
           <div className="text-center mt-12">
             <button 
               onClick={completeOnboarding}
-              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-5 px-16 rounded-2xl transition-all duration-300 text-xl transform hover:scale-105 shadow-lg hover:shadow-xl"
+              className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white font-bold py-5 px-16 rounded-2xl transition-all duration-300 text-xl transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
               Complete Onboarding
             </button>

@@ -48,10 +48,16 @@ const ApplyShopPage: React.FC = () => {
             transition={{ duration: 0.6 }}
             className="md:w-1/2 text-left"
           >
-            <h1 className="text-3xl md:text-4xl font-bold mb-4">
-              Apply to <span className="text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400">EazePrint</span>
-            </h1>
-            <p className="text-lg text-slate-600">Register your shop and join our partner network</p>
+            <div className="flex flex-col items-start mt-24">
+              <h1 className="text-4xl md:text-5xl font-extrabold mb-2">
+                Apply to <span className="text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400 drop-shadow-[0_0_16px_rgba(16,185,129,0.7)]">EazePrint</span>
+              </h1>
+              <p className="text-xl md:text-2xl font-extrabold mb-4">
+                <span className="text-3xl md:text-4xl text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400">Grow Your Print Business </span>
+                <span className="text-3xl md:text-4xl text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400">with us</span>
+              </p>
+              <p className="text-lg text-slate-600 mt-4">Register your shop and join our partner network</p>
+            </div>
           </motion.div>
 
           <motion.form

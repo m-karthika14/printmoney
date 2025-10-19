@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import logo from '../../../logo.png';
 import { Link, useLocation } from 'react-router-dom';
 import { 
-  Printer, 
+  
   Home, 
   ClipboardList, 
   FileText,
@@ -72,15 +73,17 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-800 transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+        <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-800 transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
-        <div className="flex items-center justify-between h-16 px-6 bg-slate-900">
-          <Link to="/dashboard" className="flex items-center space-x-2">
-            <div className="bg-lime-500 p-2 rounded-lg">
-              <Printer className="h-6 w-6 text-white" />
-            </div>
-            <span className="text-xl font-bold text-white">EazePrint</span>
+        <div className="flex items-center justify-between h-28 px-6 bg-slate-800">
+          <Link to="/dashboard" className="flex items-center">
+            <img
+              src={logo}
+              alt="logo"
+              className="h-20 w-auto object-contain"
+              style={{ transform: 'scale(2.25)', transformOrigin: 'left center' }}
+            />
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -91,6 +94,7 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
 
         <nav className="mt-8 px-4">
+        
           <div className="space-y-2">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href;
