@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Printer, Mail, Lock, Eye, EyeOff, Smartphone } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Smartphone } from 'lucide-react';
+import logo from '../../../logo.png';
 
 const PartnerLogin = () => {
   const navigate = useNavigate();
@@ -55,21 +56,18 @@ const PartnerLogin = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-start justify-center pt-8 pb-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-6">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
           className="text-center"
         >
-          <Link to="/" className="inline-flex items-center space-x-2 mb-8">
-            <div className="bg-lime-500 p-3 rounded-xl">
-              <Printer className="h-8 w-8 text-white" />
-            </div>
-            <span className="text-3xl font-bold text-white">EazePrint</span>
-          </Link>
-          <h2 className="text-3xl font-bold text-white mb-2">Partner Login</h2>
+          <div className="-mt-16 mb-2">
+            <img src={logo} alt="EazePrint" className="h-40 md:h-48 lg:h-56 w-auto mx-auto object-contain" />
+          </div>
+          <h2 className="-mt-12 text-3xl font-bold text-white mb-2">Partner Login</h2>
           <p className="text-gray-300">Access your print shop dashboard</p>
         </motion.div>
 
@@ -77,7 +75,7 @@ const PartnerLogin = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20"
+          className="-mt-14 bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20"
         >
           {/* Login Method Toggle */}
           <div className="flex rounded-lg bg-white/10 p-1 mb-6">
@@ -230,7 +228,7 @@ const PartnerLogin = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.3 }}
-          className="text-center"
+          className="-mt-10 text-center"
         >
           <Link
             to="/"

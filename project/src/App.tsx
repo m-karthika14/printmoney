@@ -4,7 +4,7 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
 // UploadPage removed — route will render HomePage as fallback
-import PaymentPage from './pages/PaymentPage';
+//import PaymentPage from './pages/PaymentPage';
 // Order pages removed
 import PartnerLogin from './pages/partner/PartnerLogin';
 import Dashboard from './pages/partner/Dashboard';
@@ -40,7 +40,7 @@ function App() {
           <Route path="/payment" element={
             <>
               <Header />
-              <PaymentPage />
+              
               <Footer />
             </>
           } />

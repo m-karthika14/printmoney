@@ -39,91 +39,82 @@ const ApplyShopPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Gradient Header */}
-      <section className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white py-16 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 text-center">
-          <motion.h1
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="text-3xl md:text-4xl font-bold mb-2"
+    <div className="min-h-screen bg-white flex items-center">
+      <div className="max-w-6xl mx-auto w-full px-6 py-16">
+        <div className="flex flex-col md:flex-row items-center md:items-start gap-10">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6 }}
+            className="md:w-1/2 text-left"
           >
-            Apply to <span className="text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400">EazePrint</span>
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-lg text-gray-200"
-          >
-            Register your shop and join our partner network
-          </motion.p>
-        </div>
-      </section>
+            <h1 className="text-3xl md:text-4xl font-bold mb-4">
+              Apply to <span className="text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-emerald-400">EazePrint</span>
+            </h1>
+            <p className="text-lg text-slate-600">Register your shop and join our partner network</p>
+          </motion.div>
 
-      {/* Registration Card */}
-      <section className="flex-1 flex items-center justify-center py-12">
-        <motion.form
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          onSubmit={handleSubmit}
-          className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100"
-        >
-          <div className="space-y-5">
-            <input
-              name="shopName"
-              value={form.shopName}
-              onChange={handleChange}
-              placeholder="Shop Name"
-              required
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium"
-            />
-            <input
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={handleChange}
-              placeholder="Email"
-              required
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium"
-            />
-            <input
-              name="phone"
-              value={form.phone}
-              onChange={handleChange}
-              placeholder="Phone Number"
-              required
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium"
-            />
-            <input
-              name="address"
-              value={form.address}
-              onChange={handleChange}
-              placeholder="Address"
-              required
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium"
-            />
-            <input
-              name="password"
-              type="password"
-              value={form.password}
-              onChange={handleChange}
-              placeholder="Password"
-              required
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-gray-50 font-medium"
-            />
-            {error && <div className="text-red-500 text-sm text-center font-semibold">{error}</div>}
-            <button
-              type="submit"
-              className="w-full bg-gradient-to-r from-lime-500 to-emerald-500 text-white py-3 rounded-xl font-semibold text-lg shadow-lg hover:shadow-2xl transition-all duration-300"
-            >
-              Register
-            </button>
-          </div>
-        </motion.form>
-      </section>
+          <motion.form
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            onSubmit={handleSubmit}
+            className="md:w-1/2 bg-white/95 p-8 rounded-2xl shadow-2xl border border-gray-200 ring-1 ring-gray-100 relative z-10"
+          >
+            <div className="space-y-5">
+              <input
+                name="shopName"
+                value={form.shopName}
+                onChange={handleChange}
+                placeholder="Shop Name"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-white font-medium"
+              />
+              <input
+                name="email"
+                type="email"
+                value={form.email}
+                onChange={handleChange}
+                placeholder="Email"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-white font-medium"
+              />
+              <input
+                name="phone"
+                value={form.phone}
+                onChange={handleChange}
+                placeholder="Phone Number"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-white font-medium"
+              />
+              <input
+                name="address"
+                value={form.address}
+                onChange={handleChange}
+                placeholder="Address"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-white font-medium"
+              />
+              <input
+                name="password"
+                type="password"
+                value={form.password}
+                onChange={handleChange}
+                placeholder="Password"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-lime-400 focus:outline-none text-slate-800 bg-white font-medium"
+              />
+              {error && <div className="text-red-500 text-sm text-center font-semibold">{error}</div>}
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-lime-500 to-emerald-500 text-white py-3 rounded-xl font-semibold text-lg shadow-lg hover:shadow-2xl transition-all duration-300"
+              >
+                Register
+              </button>
+            </div>
+          </motion.form>
+        </div>
+      </div>
     </div>
   );
 };
