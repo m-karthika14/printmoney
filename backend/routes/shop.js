@@ -9,7 +9,7 @@ const FinalJob = require('../models/FinalJob');
 // GET shop by canonical shop_id (new) and keep legacy (shopId) for compatibility
 router.get('/by-shop/:shop_id', async (req, res) => {
 	try {
-		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shop_id }, { shopId: req.params.shop_id }] });
+		const shop = await NewShop.findOne({ shop_id: req.params.shop_id });
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const obj = shop.toObject();
 		delete obj.password;
@@ -21,7 +21,7 @@ router.get('/by-shop/:shop_id', async (req, res) => {
 
 router.get('/by-shopId/:shopId', async (req, res) => {
 	try {
-		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] });
+		const shop = await NewShop.findOne({ shop_id: req.params.shopId });
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const obj = shop.toObject();
 		delete obj.password;
@@ -33,10 +33,11 @@ router.get('/by-shopId/:shopId', async (req, res) => {
 
 // Helper: resolve by id (ObjectId) or shop_id/shopId string
 async function resolveShopByAny(idOrCode) {
-  if (!idOrCode) return null;
-  const isHex24 = /^[a-fA-F0-9]{24}$/.test(idOrCode);
-  if (isHex24) return await NewShop.findById(idOrCode);
-  return await NewShop.findOne({ $or: [{ shop_id: idOrCode }, { shopId: idOrCode }] });
+	if (!idOrCode) return null;
+	// Only resolve by public shop identifier (shop_id or virtual shopId).
+	// Do NOT accept raw Mongo ObjectId here for public endpoints — enforce shopId-only usage.
+	const byCode = await NewShop.findOne({ shop_id: idOrCode });
+	return byCode || null;
 }
 
 // GET paperSizePricing for a shop (accepts Mongo _id or shop_id)
@@ -44,9 +45,41 @@ router.get('/shop/:id/paper-size-pricing', async (req, res) => {
 	try {
 		const shop = await resolveShopByAny(req.params.id);
 		if (!shop) {
-			return res.status(404).json({ message: 'Shop not found' });
+		const shop = await NewShop.findByIdAndDelete(shopRaw._id);
 		}
-		res.status(200).json({ paperSizePricing: shop.pricing.paperSizePricing });
+		// Ensure A4 exists in response for backward compatibility: some legacy shops may not have A4 field
+		const defaults = {
+			A4: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+			A3: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+			A5: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+			Legal: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+			Letter: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+			Photo: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+			Custom: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 }
+		};
+		const psp = (shop.pricing && shop.pricing.paperSizePricing) ? shop.pricing.paperSizePricing : {};
+		// If A4 is missing, try to populate from legacy top-level pricing fields (pricing.bwSingle etc.)
+		const legacy = shop.pricing || {};
+		const a4FromLegacy = {
+			bwSingle: typeof legacy.bwSingle !== 'undefined' ? Number(legacy.bwSingle) || 0 : undefined,
+			colorSingle: typeof legacy.colorSingle !== 'undefined' ? Number(legacy.colorSingle) || 0 : undefined,
+			bwDouble: typeof legacy.bwDouble !== 'undefined' ? Number(legacy.bwDouble) || 0 : undefined,
+			colorDouble: typeof legacy.colorDouble !== 'undefined' ? Number(legacy.colorDouble) || 0 : undefined
+		};
+
+		// Build merged result preferring psp values, then legacy values, then defaults
+		const merged = {};
+		for (const sizeKey of Object.keys(defaults)) {
+			const stored = psp[sizeKey] || {};
+			merged[sizeKey] = {
+				bwSingle: (typeof stored.bwSingle !== 'undefined' && stored.bwSingle !== null) ? Number(stored.bwSingle) : (sizeKey === 'A4' && typeof a4FromLegacy.bwSingle !== 'undefined' ? a4FromLegacy.bwSingle : defaults[sizeKey].bwSingle),
+				colorSingle: (typeof stored.colorSingle !== 'undefined' && stored.colorSingle !== null) ? Number(stored.colorSingle) : (sizeKey === 'A4' && typeof a4FromLegacy.colorSingle !== 'undefined' ? a4FromLegacy.colorSingle : defaults[sizeKey].colorSingle),
+				bwDouble: (typeof stored.bwDouble !== 'undefined' && stored.bwDouble !== null) ? Number(stored.bwDouble) : (sizeKey === 'A4' && typeof a4FromLegacy.bwDouble !== 'undefined' ? a4FromLegacy.bwDouble : defaults[sizeKey].bwDouble),
+				colorDouble: (typeof stored.colorDouble !== 'undefined' && stored.colorDouble !== null) ? Number(stored.colorDouble) : (sizeKey === 'A4' && typeof a4FromLegacy.colorDouble !== 'undefined' ? a4FromLegacy.colorDouble : defaults[sizeKey].colorDouble)
+			};
+		}
+
+		res.status(200).json({ paperSizePricing: merged });
 	} catch (error) {
 		console.error('Error fetching paperSizePricing:', error);
 		res.status(500).json({ message: 'Server error while fetching paperSizePricing' });
@@ -68,9 +101,29 @@ router.patch('/shop/:id/paper-size-pricing', async (req, res) => {
 		if (!shopRaw) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
+
+		// Build $set object to merge provided sizes/fields into existing paperSizePricing
+		const setObj = {};
+		for (const sizeKey of Object.keys(paperSizePricing)) {
+			const sizeObj = paperSizePricing[sizeKey];
+			if (sizeObj && typeof sizeObj === 'object') {
+				for (const field of ['bwSingle', 'colorSingle', 'bwDouble', 'colorDouble']) {
+					if (typeof sizeObj[field] !== 'undefined') {
+						// coerce to number when possible
+						const val = sizeObj[field];
+						setObj[`pricing.paperSizePricing.${sizeKey}.${field}`] = (typeof val === 'string' && val !== '') ? parseFloat(val) : val;
+					}
+				}
+			}
+		}
+
+		if (Object.keys(setObj).length === 0) {
+			return res.status(400).json({ message: 'No valid fields to update in paperSizePricing' });
+		}
+
 		const shop = await NewShop.findByIdAndUpdate(
 			shopRaw._id,
-			{ $set: { 'pricing.paperSizePricing': paperSizePricing } },
+			{ $set: setObj },
 			{ new: true, runValidators: true }
 		);
 		if (!shop) {
@@ -105,7 +158,7 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 	try {
 		const shopId = req.params.shopId;
 		// Resolve shop by canonical id
-		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId }] }).lean();
+	const shop = await NewShop.findOne({ shop_id: shopId }).lean();
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 
 		const canonical = shop.shop_id || shop.shopId || shopId;
@@ -250,7 +303,7 @@ router.patch('/:shopId/isopen', async (req, res) => {
 		if (typeof isOpen !== 'boolean') return res.status(400).json({ message: 'isOpen boolean is required' });
 		const shopId = req.params.shopId;
 		const shop = await NewShop.findOneAndUpdate(
-			{ $or: [{ shop_id: shopId }, { shopId }] },
+				{ shop_id: shopId },
 			{ $set: { isOpen } },
 			{ new: true }
 		).lean();
@@ -265,27 +318,97 @@ router.patch('/:shopId/isopen', async (req, res) => {
 // PATCH update pricing details for a shop
 router.patch('/shop/:id/pricing', async (req, res) => {
     try {
-        const { bwSingle, colorSingle, bwDouble, colorDouble } = req.body;
-        if (!bwSingle || !colorSingle || !bwDouble || !colorDouble) {
-            return res.status(400).json({ message: 'Incomplete pricing data' });
-        }
-
+		// Support two shapes:
+		// 1) legacy top-level fields: { bwSingle, colorSingle, bwDouble, colorDouble }
+		// 2) new shape: { paperSizePricing: { A4: { bwSingle, colorSingle, bwDouble, colorDouble }, ... } }
 		const shopRaw = await resolveShopByAny(req.params.id);
 		if (!shopRaw) {
 			return res.status(404).json({ message: 'Shop not found' });
 		}
 
+		// Log incoming body for easier debugging when clients hit 400
+		console.log('[Pricing PATCH] shop:', req.params.id, 'body:', JSON.stringify(req.body, null, 2));
+
+		const updates = {};
+
+		// If paperSizePricing provided, accept any size keys (A4, A3, etc.) and merge provided fields
+		if (req.body.paperSizePricing && typeof req.body.paperSizePricing === 'object') {
+			const psp = req.body.paperSizePricing;
+			for (const sizeKey of Object.keys(psp)) {
+				const sizeObj = psp[sizeKey] || {};
+				if (sizeObj && typeof sizeObj === 'object') {
+					for (const field of ['bwSingle', 'colorSingle', 'bwDouble', 'colorDouble']) {
+						// Use hasOwnProperty to allow explicit null/0/"" values to be handled
+						if (Object.prototype.hasOwnProperty.call(sizeObj, field)) {
+							const raw = sizeObj[field];
+							// Coerce numeric strings to numbers; treat empty string as 0
+							let val = raw;
+							if (typeof raw === 'string') {
+								val = raw === '' ? 0 : parseFloat(raw);
+								if (Number.isNaN(val)) val = 0;
+							}
+							updates[`pricing.paperSizePricing.${sizeKey}.${field}`] = val;
+						}
+					}
+				}
+			}
+		} else {
+			// Backward compatibility: legacy top-level fields -> write into A4
+			const { bwSingle, colorSingle, bwDouble, colorDouble } = req.body || {};
+			if (Object.prototype.hasOwnProperty.call(req.body || {}, 'bwSingle')) {
+				const raw = bwSingle;
+				let val = raw;
+				if (typeof raw === 'string') {
+					val = raw === '' ? 0 : parseFloat(raw);
+					if (Number.isNaN(val)) val = 0;
+				}
+				updates['pricing.paperSizePricing.A4.bwSingle'] = val;
+			}
+			if (Object.prototype.hasOwnProperty.call(req.body || {}, 'colorSingle')) {
+				const raw = colorSingle;
+				let val = raw;
+				if (typeof raw === 'string') {
+					val = raw === '' ? 0 : parseFloat(raw);
+					if (Number.isNaN(val)) val = 0;
+				}
+				updates['pricing.paperSizePricing.A4.colorSingle'] = val;
+			}
+			if (Object.prototype.hasOwnProperty.call(req.body || {}, 'bwDouble')) {
+				const raw = bwDouble;
+				let val = raw;
+				if (typeof raw === 'string') {
+					val = raw === '' ? 0 : parseFloat(raw);
+					if (Number.isNaN(val)) val = 0;
+				}
+				updates['pricing.paperSizePricing.A4.bwDouble'] = val;
+			}
+			if (Object.prototype.hasOwnProperty.call(req.body || {}, 'colorDouble')) {
+				const raw = colorDouble;
+				let val = raw;
+				if (typeof raw === 'string') {
+					val = raw === '' ? 0 : parseFloat(raw);
+					if (Number.isNaN(val)) val = 0;
+				}
+				updates['pricing.paperSizePricing.A4.colorDouble'] = val;
+			}
+		}
+
+		if (Object.keys(updates).length === 0) {
+			console.warn('[Pricing PATCH] No valid fields found to update. Body was:', JSON.stringify(req.body));
+			return res.status(400).json({ message: 'Incomplete pricing data - no valid fields found', received: req.body });
+		}
+
 		const updatedShop = await NewShop.findByIdAndUpdate(
 			shopRaw._id,
-            { $set: { 'pricing.bwSingle': bwSingle, 'pricing.colorSingle': colorSingle, 'pricing.bwDouble': bwDouble, 'pricing.colorDouble': colorDouble } },
-            { new: true }
-        );
+			{ $set: updates },
+			{ new: true }
+		);
 
-        if (!updatedShop) {
-            return res.status(404).json({ message: 'Shop not found' });
-        }
+		if (!updatedShop) {
+			return res.status(404).json({ message: 'Shop not found' });
+		}
 
-        res.status(200).json({ message: 'Pricing updated successfully', pricing: updatedShop.pricing });
+		res.status(200).json({ message: 'Pricing updated successfully', pricing: updatedShop.pricing });
     } catch (error) {
         console.error('Error updating pricing:', error);
         res.status(500).json({ message: 'Server error while updating pricing' });
@@ -307,22 +430,20 @@ router.patch('/shop/:id/services', async (req, res) => {
         console.log('[BACKEND] Services array length:', services.length);
         console.log('[BACKEND] Sample service item:', services[0]);
         
-        // First check if shop exists
-        const shop = await NewShop.findById(req.params.id);
-        if (!shop) {
-            console.error('[BACKEND] Shop not found with ID:', req.params.id);
-            return res.status(404).json({ message: 'Shop not found' });
-        }
-        
-        console.log('[BACKEND] Found shop:', shop.shopName || shop.email);
-        console.log('[BACKEND] Current services count:', shop.services?.length || 0);
-        
-        // Update services
-        const updatedShop = await NewShop.findByIdAndUpdate(
-            req.params.id,
-            { $set: { services: services } },
-            { new: true }
-        );
+		// Resolve shop by id or shop code
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) {
+			console.error('[BACKEND] Shop not found with ID:', req.params.id);
+			return res.status(404).json({ message: 'Shop not found' });
+		}
+		console.log('[BACKEND] Found shop:', shopRaw.shopName || shopRaw.email);
+		console.log('[BACKEND] Current services count:', shopRaw.services?.length || 0);
+		// Update services
+		const updatedShop = await NewShop.findByIdAndUpdate(
+			shopRaw._id,
+			{ $set: { services: services } },
+			{ new: true }
+		);
 
         if (!updatedShop) {
             console.error('[BACKEND] Failed to update shop with ID:', req.params.id);
@@ -400,8 +521,14 @@ router.patch('/:id/printers', async (req, res) => {
 			console.log('Printers is not an array:', printers);
 			return res.status(400).json({ message: 'Printers must be an array' });
 		}
+		// Resolve shop by Mongo _id or shop code
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) {
+			console.log('Shop not found for id:', req.params.id);
+			return res.status(404).json({ message: 'Shop not found' });
+		}
 		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
+			shopRaw._id,
 			{ $set: { printers: printers } },
 			{ new: true, runValidators: true }
 		);
@@ -419,15 +546,33 @@ router.patch('/:id/printers', async (req, res) => {
 // PATCH update only payment (onboarding)
 router.patch('/:id/payment', async (req, res) => {
 	try {
-		// Only update payment.method, payment.details, payment.status
+		// Normalize incoming method values (frontend may send lowercase variants)
+		const rawMethod = (req.body.method || '').toString();
+		let method = rawMethod;
+		if (/^upi$/i.test(rawMethod)) method = 'UPI';
+		else if (/^card$/i.test(rawMethod)) method = 'Card';
+		else if (/^netbanking$/i.test(rawMethod) || /^netbank$/i.test(rawMethod)) method = 'NetBanking';
+		else if (/^cash$/i.test(rawMethod)) method = 'cash';
+		else if (/^credit$/i.test(rawMethod)) method = 'credit';
+
+		const details = (typeof req.body.details === 'object' && req.body.details) ? req.body.details : (req.body.details ? { details: req.body.details } : {});
+		const status = req.body.status || 'pending';
+		const completed = typeof req.body.completed === 'boolean' ? req.body.completed : !!req.body.completed;
+
 		const update = {
-			'payment.method': req.body.method,
-			'payment.details': req.body.details,
-			'payment.status': req.body.status || 'pending',
-			'payment.completed': req.body.completed || false
+			'payment.method': method,
+			'payment.details': details,
+			'payment.status': status,
+			'payment.completed': completed
 		};
+
+		console.log('[Payment PATCH] shop:', req.params.id, 'rawMethod:', rawMethod, 'normalized:', method, 'body:', JSON.stringify(req.body));
+
+		// Resolve by any identifier to tolerate Mongo _id or shop code
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) return res.status(404).json({ message: 'Shop not found' });
 		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
+			shopRaw._id,
 			{ $set: update },
 			{ new: true, runValidators: true }
 		);
@@ -467,10 +612,10 @@ router.patch('/:id/printer/:printerId', async (req, res) => {
 
 // --- Printers API (by shopId string) ---
 
-// GET /api/shops/:shopId/printers
-router.get('/:shopId/printers', async (req, res) => {
+// GET /api/shops/:id/printers  (accepts Mongo _id or shop_id/shopId)
+router.get('/:id/printers', async (req, res) => {
 	try {
-		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] }).lean({ virtuals: true });
+		const shop = await resolveShopByAny(req.params.id);
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const printers = (shop.printers || []).map(p => ({
 			...p,
@@ -487,7 +632,7 @@ router.get('/:shopId/printers', async (req, res) => {
 router.patch('/:shopId/printers/:printerId', async (req, res) => {
 	try {
 		const { manualOverride } = req.body || {};
-		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] });
+		const shop = await NewShop.findOne({ shop_id: req.params.shopId });
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const idx = (shop.printers || []).findIndex(p => (p.printerid || p.printerId) === req.params.printerId);
 		if (idx === -1) return res.status(404).json({ message: 'Printer not found' });
@@ -515,7 +660,7 @@ router.patch('/:shopId/printers/:printerId', async (req, res) => {
 router.post('/:shopId/printers/:printerId/sync', async (req, res) => {
 	try {
 		await scheduledSync(req.params.shopId);
-		const shop = await NewShop.findOne({ $or: [{ shop_id: req.params.shopId }, { shopId: req.params.shopId }] }).lean({ virtuals: true });
+	const shop = await NewShop.findOne({ shop_id: req.params.shopId }).lean({ virtuals: true });
 		if (!shop) return res.status(404).json({ message: 'Shop not found after sync' });
 		const printer = (shop.printers || []).find(p => (p.printerid || p.printerId) === req.params.printerId);
 		if (!printer) return res.status(404).json({ message: 'Printer not found after sync' });
@@ -533,7 +678,8 @@ router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 			return res.status(400).json({ message: 'Invalid manualStatus. Use on/off/pending_off' });
 		}
 		const { shopId, printerId } = req.params;
-		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId }] });
+		// Resolve shop by canonical shop_id/shopId
+	const shop = await NewShop.findOne({ shop_id: shopId });
 		if (!shop) {
 			return res.status(404).json({ message: 'Shop not found', code: 'SHOP_NOT_FOUND', shopId });
 		}
@@ -568,13 +714,13 @@ router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 			}
 		}
 		if (!printer) {
-				// second pass: try matching by agentDetected.name
-				for (const p of printers) {
-					const alt = p.agentDetected?.name;
-					if (alt && sanitize(alt) === targetSan) { printer = p; break; }
-				}
+			// second pass: try matching by agentDetected.name
+			for (const p of printers) {
+				const alt = p.agentDetected?.name;
+				if (alt && sanitize(alt) === targetSan) { printer = p; break; }
 			}
-			if (!printer) {
+		}
+		if (!printer) {
 			return res.status(404).json({
 				message: 'Printer not found',
 				code: 'PRINTER_NOT_FOUND',
@@ -583,25 +729,26 @@ router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 				available: printers.map(p => ({ raw: p.printerid || p.printerId, norm: sanitize(p.printerid || p.printerId) }))
 			});
 		}
-				// If turning off and an active job exists, mark pending_off
-			let nextStatus = manualStatus;
-			if (manualStatus === 'off') {
-				const pid = printer.printerid || printer.printerId;
-					const pname = printer.agentDetected?.name;
-				const activeJob = await FinalJob.findOne({
-					shop_id: shopId,
-					$or: [
-							{ printerid: pid },
-							{ assigned_printer: pid },
-							...(pname ? [{ assigned_printer: pname }] : [])
-					],
-						job_status: { $in: ['pending', 'printing', 'alloted', 'processing'] }
-				}).lean();
-				if (activeJob) nextStatus = 'pending_off';
-			}
-			printer.manualStatus = nextStatus;
+		// If turning off and an active job exists, mark pending_off
+		let nextStatus = manualStatus;
+		if (manualStatus === 'off') {
+			const pid = printer.printerid || printer.printerId;
+			const pname = printer.agentDetected?.name;
+			const canonicalShopId = shop.shop_id || shop.shopId || shopId;
+			const activeJob = await FinalJob.findOne({
+				shop_id: canonicalShopId,
+				$or: [
+					{ printerid: pid },
+					{ assigned_printer: pid },
+					...(pname ? [{ assigned_printer: pname }] : [])
+				],
+				job_status: { $in: ['pending', 'printing', 'alloted', 'processing'] }
+			}).lean();
+			if (activeJob) nextStatus = 'pending_off';
+		}
+		printer.manualStatus = nextStatus;
 		await shop.save();
-			res.json({ success: true, printer });
+		res.json({ success: true, printer });
 	} catch (err) {
 		res.status(500).json({ message: err.message });
 	}
@@ -645,15 +792,16 @@ router.patch('/:id/services', async (req, res) => {
 // PATCH update agent status and installedAt (onboarding agent install)
 router.patch('/:id/agent', async (req, res) => {
 	try {
-		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
-			{ agent: { status: req.body.status, installedAt: req.body.installedAt } },
-			{ new: true, runValidators: true }
-		);
-		if (!shop) {
-			return res.status(404).json({ message: 'Shop not found' });
-		}
-		res.json(shop);
+			// Accept either Mongo _id or shop code
+			const shopRaw = await resolveShopByAny(req.params.id);
+			if (!shopRaw) return res.status(404).json({ message: 'Shop not found' });
+			const shop = await NewShop.findByIdAndUpdate(
+				shopRaw._id,
+				{ agent: { status: req.body.status, installedAt: req.body.installedAt } },
+				{ new: true, runValidators: true }
+			);
+			if (!shop) return res.status(404).json({ message: 'Shop not found' });
+			res.json(shop);
 	} catch (error) {
 		res.status(400).json({ message: error.message });
 	}
@@ -661,15 +809,16 @@ router.patch('/:id/agent', async (req, res) => {
 // PATCH update only the plan for a shop (onboarding)
 router.patch('/:id/plan', async (req, res) => {
 	try {
-		const shop = await NewShop.findByIdAndUpdate(
-			req.params.id,
-			{ plan: req.body.plan },
-			{ new: true, runValidators: true }
-		);
-		if (!shop) {
-			return res.status(404).json({ message: 'Shop not found' });
-		}
-		res.json(shop);
+			// Accept either Mongo _id or shop code
+			const shopRaw = await resolveShopByAny(req.params.id);
+			if (!shopRaw) return res.status(404).json({ message: 'Shop not found' });
+			const shop = await NewShop.findByIdAndUpdate(
+				shopRaw._id,
+				{ plan: req.body.plan },
+				{ new: true, runValidators: true }
+			);
+			if (!shop) return res.status(404).json({ message: 'Shop not found' });
+			res.json(shop);
 	} catch (error) {
 		res.status(400).json({ message: error.message });
 	}
@@ -690,7 +839,7 @@ router.get('/:shopId/dailystats', async (req, res) => {
 	try {
 		const shopId = req.params.shopId;
 		const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '30')));
-		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId: shopId }] }).lean();
+	const shop = await NewShop.findOne({ shop_id: shopId }).lean();
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const ds = shop.dailystats || {};
 		const entries = Object.entries(ds).map(([date, obj]) => ({ date, totalJobsCompleted: obj?.totalJobsCompleted ?? obj?.completedCount ?? 0, createdAt: obj?.createdAt })).sort((a,b) => b.date.localeCompare(a.date));
@@ -706,7 +855,7 @@ router.get('/:shopId/dailystats', async (req, res) => {
 router.get('/:shopId/total-revenue', async (req, res) => {
 	try {
 		const shopId = req.params.shopId;
-		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId: shopId }] }).lean();
+	const shop = await NewShop.findOne({ shop_id: shopId }).lean();
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const tr = shop.totalRevenue || { daily: {}, weekly: {}, monthly: {}, yearly: {} };
 					const payload = {
@@ -766,7 +915,7 @@ router.get('/total-revenue', async (req, res) => {
 router.post('/:shopId/dailystats/refresh', async (req, res) => {
 	try {
 		const shopId = req.params.shopId;
-		const shop = await NewShop.findOne({ $or: [{ shop_id: shopId }, { shopId: shopId }] }).lean();
+		const shop = await NewShop.findOne({ shop_id: shopId }).lean();
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const canonical = shop.shop_id || shop.shopId || shopId;
 		const start = new Date(); start.setHours(0,0,0,0);
@@ -781,7 +930,7 @@ router.post('/:shopId/dailystats/refresh', async (req, res) => {
 		});
 		const dayStr = start.toISOString().slice(0,10);
 		await NewShop.updateOne(
-			{ $or: [{ shop_id: canonical }, { shopId: canonical }] },
+			{ shop_id: canonical },
 			{ $set: { [`dailystats.${dayStr}.totalJobsCompleted`]: completed, [`dailystats.${dayStr}.createdAt`]: new Date() } }
 		);
 		return res.json({ success: true, shop_id: canonical, date: dayStr, totalJobsCompleted: completed });
@@ -795,7 +944,7 @@ router.post('/:shopId/dailystats/refresh', async (req, res) => {
 // Recompute today's completedCount for all shops (admin convenience)
 router.post('/admin/dailystats/refresh-all', async (req, res) => {
 	try {
-		const shops = await NewShop.find({}, { shop_id: 1, shopId: 1 }).lean();
+		const shops = await NewShop.find({}, { shop_id: 1 }).lean();
 		const start = new Date(); start.setHours(0,0,0,0);
 		const end = new Date(start); end.setDate(end.getDate() + 1);
 		const dayStr = start.toISOString().slice(0,10);
@@ -812,7 +961,7 @@ router.post('/admin/dailystats/refresh-all', async (req, res) => {
 				]
 			});
 			await NewShop.updateOne(
-				{ $or: [{ shop_id: sid }, { shopId: sid }] },
+				{ shop_id: sid },
 				{ $set: { [`dailystats.${dayStr}.totalJobsCompleted`]: completed, [`dailystats.${dayStr}.createdAt`]: new Date() } }
 			);
 			results.push({ shop: sid, completed });
@@ -873,7 +1022,7 @@ router.post('/', async (req, res) => {
 			const candidateShopId = generateShopId();
 			const candidateApiKey = generateApiKey();
 			// Quick existence check
-			const exists = await NewShop.findOne({ $or: [{ shopId: candidateShopId }, { shop_id: candidateShopId }] }).lean();
+			const exists = await NewShop.findOne({ shop_id: candidateShopId }).lean();
 			if (exists) {
 				lastErr = new Error('shopId collision (pre-check)');
 				continue; // try again
@@ -909,7 +1058,7 @@ router.post('/', async (req, res) => {
 router.get('/:shop_id/qr', async (req, res) => {
 	try {
 		const id = req.params.shop_id;
-		const shop = await NewShop.findOne({ $or: [{ shop_id: id }, { shopId: id }] });
+		const shop = await NewShop.findOne({ shop_id: id });
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		// If QR not yet generated, attempt generation now (best-effort)
 		let qrUrl = shop.qr_code_url;

@@ -8,7 +8,7 @@ async function main() {
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
   console.log('[BACKFILL] Connected');
   try {
-    const shops = await NewShop.find({}, { shop_id: 1, shopId: 1 }).lean();
+  const shops = await NewShop.find({}, { shop_id: 1 }).lean();
     console.log('[BACKFILL] shops:', shops.length);
     let totalBuckets = 0;
     for (const s of shops) {
@@ -39,7 +39,7 @@ async function main() {
       }
       if (Object.keys(setDoc).length > 0) {
         await NewShop.updateOne(
-          { $or: [{ shop_id: sid }, { shopId: sid }] },
+          { shop_id: sid },
           { $set: setDoc }
         );
         console.log(`[BACKFILL] ${sid} buckets=${rows.length}`);

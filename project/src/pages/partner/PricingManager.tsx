@@ -134,76 +134,98 @@ const PricingManager = () => {
   const [shopId, setShopId] = useState('');
 
   useEffect(() => {
-  const id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
-    if (id) {
-      setShopId(id);
-    }
+    const id = localStorage.getItem('shopId') || localStorage.getItem('shop_id');
+    if (id) setShopId(id);
   }, []);
 
   useEffect(() => {
     if (!shopId) return;
-  // Accepts either _id or shop_id; we pass canonical shop_id
-  apiFetch(`/api/newshop/${shopId}/fixed-documents`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setPricing(prev => ({ ...prev, fixedDocuments: data }));
-        }
-      })
-      .catch(err => console.error(err));
+    // Accepts either _id or shop_id; we pass canonical shop id
+    apiFetch(`/api/newshop/${shopId}/fixed-documents`).then(async (res) => {
+      if (!res.ok) {
+        console.warn('[PricingManager] fixed-documents fetch failed', res.status, await res.text());
+        return;
+      }
+      const data = await res.json();
+      if (Array.isArray(data)) setPricing(prev => ({ ...prev, fixedDocuments: data }));
+    }).catch(err => console.error('[PricingManager] fixed-documents error', err));
   }, [shopId]);
 
   useEffect(() => {
     if (!shopId) return;
-
-  // Flexible route: accepts _id or shop_id
-  apiFetch(`/api/shops/shop/${shopId}/pricing`)
-      .then(res => res.json())
-      .then(data => {
-        const p = data.pricing || {};
-        setDbPricing({
-          bwSingleSidePrice: p.bwSingle ? parseFloat(p.bwSingle) : 2,
-          colorSingleSidePrice: p.colorSingle ? parseFloat(p.colorSingle) : 8,
-          bwDoubleSidePrice: p.bwDouble ? parseFloat(p.bwDouble) : 3,
-          colorDoubleSidePrice: p.colorDouble ? parseFloat(p.colorDouble) : 12
-        });
+    // GET pricing (flexible)
+    apiFetch(`/api/shops/shop/${shopId}/pricing`).then(async (res) => {
+      if (!res.ok) {
+        console.warn('[PricingManager] pricing fetch failed', res.status, await res.text());
+        return;
+      }
+      const data = await res.json();
+      const p = data.pricing || {};
+      // Backward compatibility: prefer paperSizePricing.A4, fall back to legacy top-level fields
+      const a4 = (p.paperSizePricing && p.paperSizePricing.A4) ? p.paperSizePricing.A4 : {
+        bwSingle: p.bwSingle,
+        colorSingle: p.colorSingle,
+        bwDouble: p.bwDouble,
+        colorDouble: p.colorDouble
+      };
+      setDbPricing({
+        bwSingleSidePrice: a4 && a4.bwSingle ? parseFloat(a4.bwSingle) : 2,
+        colorSingleSidePrice: a4 && a4.colorSingle ? parseFloat(a4.colorSingle) : 8,
+        bwDoubleSidePrice: a4 && a4.bwDouble ? parseFloat(a4.bwDouble) : 3,
+        colorDoubleSidePrice: a4 && a4.colorDouble ? parseFloat(a4.colorDouble) : 12
       });
+    }).catch(err => console.error('[PricingManager] pricing fetch error', err));
 
-  apiFetch(`/api/shops/shop/${shopId}/paper-size-pricing`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.paperSizePricing) {
-          setPricing(prev => ({ ...prev, paperSizePricing: data.paperSizePricing }));
-        }
-      });
+    // paper-size-pricing (ensures A4 exists)
+    apiFetch(`/api/shops/shop/${shopId}/paper-size-pricing`).then(async (res) => {
+      if (!res.ok) {
+        console.warn('[PricingManager] paper-size-pricing fetch failed', res.status, await res.text());
+        return;
+      }
+      const data = await res.json();
+      if (data.paperSizePricing) {
+        const defaults: any = {
+          A4: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+          A3: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+          A5: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+          Legal: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+          Letter: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+          Photo: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
+          Custom: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 }
+        };
+        const merged = { ...defaults, ...data.paperSizePricing };
+        setPricing(prev => ({ ...prev, paperSizePricing: merged }));
+      }
+    }).catch(err => console.error('[PricingManager] paper-size-pricing error', err));
 
-  apiFetch(`/api/newshop/${shopId}/discounts`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setPricing(prev => ({ ...prev, customDiscounts: data }));
-        }
-      });
+    apiFetch(`/api/newshop/${shopId}/discounts`).then(async (res) => {
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) setPricing(prev => ({ ...prev, customDiscounts: data }));
+    }).catch(err => console.error('[PricingManager] discounts error', err));
 
-  // Fetch shop details flexibly by shop_id
-  apiFetch(`/api/shops/${shopId}`)
-      .then(res => res.json())
-      .then(data => {
-        const allServices = Array.isArray(data.services) ? data.services : [];
-        setSelectedServices(allServices.filter((s: any) => !s.isCustom && s.selected).map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          price: s.price || '',
-          selected: true,
-          isCustom: false
-        })));
-        setCustomServices(allServices.filter((s: any) => s.isCustom).map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          price: s.price || '',
-          isCustom: true
-        })));
-      });
+    // Fetch shop details flexibly by shop_id
+    apiFetch(`/api/shops/${shopId}`).then(async (res) => {
+      if (!res.ok) {
+        console.warn('[PricingManager] shop fetch failed', res.status, await res.text());
+        return;
+      }
+      const data = await res.json();
+      const allServices = Array.isArray(data.services) ? data.services : [];
+      setSelectedServices(allServices.filter((s: any) => !s.isCustom && s.selected).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        price: s.price || '',
+        selected: true,
+        isCustom: false
+      })));
+      setCustomServices(allServices.filter((s: any) => s.isCustom).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        price: s.price || '',
+        isCustom: true
+      })));
+    }).catch(err => console.error('[PricingManager] shop fetch error', err));
   }, [shopId]);
 
   const handleAddPredefinedService = async () => {
@@ -406,15 +428,23 @@ const PricingManager = () => {
 
   const handleSave = async () => {
     try {
+      const payload = { paperSizePricing: { A4: {
+        bwSingle: dbPricing.bwSingleSidePrice,
+        colorSingle: dbPricing.colorSingleSidePrice,
+        bwDouble: dbPricing.bwDoubleSidePrice,
+        colorDouble: dbPricing.colorDoubleSidePrice
+      } },
+      // Legacy top-level fields for backward compatibility with older backend
+      bwSingle: dbPricing.bwSingleSidePrice,
+      colorSingle: dbPricing.colorSingleSidePrice,
+      bwDouble: dbPricing.bwDoubleSidePrice,
+      colorDouble: dbPricing.colorDoubleSidePrice
+      };
+      console.log('[PricingManager][handleSave] PATCH payload for shop', shopId, payload);
       await apiFetch(`/api/shops/shop/${shopId}/pricing`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bwSingle: dbPricing.bwSingleSidePrice,
-          colorSingle: dbPricing.colorSingleSidePrice,
-          bwDouble: dbPricing.bwDoubleSidePrice,
-          colorDouble: dbPricing.colorDoubleSidePrice
-        })
+        body: JSON.stringify(payload)
       });
       
       setSaved(true);
@@ -760,16 +790,23 @@ const PricingManager = () => {
                   className="px-4 py-2 bg-lime-500 text-white rounded-lg hover:bg-lime-600 transition"
                   onClick={async () => {
                     try {
-                      await apiFetch(`/api/shops/shop/${shopId}/pricing`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
+                          const payload = { paperSizePricing: { A4: {
+                            bwSingle: dbPricing.bwSingleSidePrice,
+                            colorSingle: dbPricing.colorSingleSidePrice,
+                            bwDouble: dbPricing.bwDoubleSidePrice,
+                            colorDouble: dbPricing.colorDoubleSidePrice
+                          } },
                           bwSingle: dbPricing.bwSingleSidePrice,
                           colorSingle: dbPricing.colorSingleSidePrice,
                           bwDouble: dbPricing.bwDoubleSidePrice,
                           colorDouble: dbPricing.colorDoubleSidePrice
-                        })
-                      });
+                          };
+                          console.log('[PricingManager][SingleDouble][Save] PATCH payload for shop', shopId, payload);
+                          await apiFetch(`/api/shops/shop/${shopId}/pricing`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                          });
                       alert('Single/Double Side Pricing saved!');
                     } catch (err) {
                       alert('Error saving Single/Double Side Pricing.');

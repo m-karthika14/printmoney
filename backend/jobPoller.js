@@ -47,7 +47,7 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
       continue;
     }
 
-  const shop = await NewShop.findOne({ $or: [{ shop_id: job.shop_id }, { shopId: job.shop_id }] });
+      const shop = await NewShop.findOne({ shop_id: job.shop_id });
     if (!shop || !Array.isArray(shop.printers) || shop.printers.length === 0) {
       console.log(`[JobPoller] No printers for shop ${job.shop_id} — skip job ${job.job_number}.`);
       continue;
@@ -82,11 +82,11 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
         continue;
       }
 
-      const active = await FinalJob.findOne({
-        shop_id: job.shop_id,
-        $or: orClauses,
-        job_status: { $ne: 'completed' }
-      }).lean();
+            const active = await FinalJob.findOne({
+              shop_id: job.shop_id,
+              $or: orClauses,
+              job_status: { $ne: 'completed' }
+            }).lean();
       if (!active) { selected = cand; break; }
     }
     if (!selected) {
@@ -147,7 +147,7 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
       { $set: upsertData },
       { upsert: true }
     );
-    console.log(`[JOB-ALLOC] ShopId: ${job.shop_id}, Job: ${job.job_number}, Printer: ${assignedName}, Mode: ${!!shop.autoPrintMode ? 'Auto' : 'Manual'}`);
+      console.log(`[JOB-ALLOC] ShopId: ${job.shop_id}, Job: ${job.job_number}, Printer: ${assignedName}, Mode: ${!!shop.autoPrintMode ? 'Auto' : 'Manual'}`);
   }
 
   // Reconcile: any printers stuck in pending_off but with no active jobs → set to off
@@ -159,15 +159,15 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
         if (p.manualStatus !== 'pending_off') continue;
         const pid = p.printerid || p.printerId;
         const pname = p.agentDetected?.name;
-        const active = await FinalJob.findOne({
-          shop_id: shop.shop_id || shop.shopId,
-          $or: [
-            { printerid: pid },
-            { assigned_printer: pid },
-            ...(pname ? [{ assigned_printer: pname }] : [])
-          ],
-          job_status: { $ne: 'completed' }
-        }).lean();
+          const active = await FinalJob.findOne({
+              shop_id: shop.shop_id,
+              $or: [
+              { printerid: pid },
+              { assigned_printer: pid },
+              ...(pname ? [{ assigned_printer: pname }] : [])
+            ],
+            job_status: { $ne: 'completed' }
+          }).lean();
         if (!active) {
           p.manualStatus = 'off';
           changed = true;

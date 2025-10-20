@@ -9,14 +9,14 @@ async function updateDailyStats(options = {}) {
     await mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
   }
 
-  const shops = await NewShop.find({}, { shop_id: 1, shopId: 1, shopName: 1 }).lean();
+  const shops = await NewShop.find({}, { shop_id: 1, shopName: 1 }).lean();
   const start = new Date(); start.setHours(0,0,0,0);
   const end = new Date(start); end.setDate(end.getDate() + 1);
   const dayStr = start.toISOString().slice(0,10);
 
   const results = [];
   for (const s of shops) {
-    const sid = s.shop_id || s.shopId;
+  const sid = s.shop_id;
     if (!sid) continue;
     const completed = await FinalJob.countDocuments({
       shop_id: sid,
@@ -32,12 +32,12 @@ async function updateDailyStats(options = {}) {
     if (dryRun) continue;
 
     const updateResult = await NewShop.updateOne(
-      { $or: [{ shop_id: sid }, { shopId: sid }], 'dailystats.date': dayStr },
+      { shop_id: sid, 'dailystats.date': dayStr },
       { $set: { 'dailystats.$.completedCount': completed, 'dailystats.$.createdAt': new Date() } }
     );
     if (!updateResult.modifiedCount) {
       await NewShop.updateOne(
-        { $or: [{ shop_id: sid }, { shopId: sid }] },
+        { shop_id: sid },
         { $push: { dailystats: { date: dayStr, completedCount: completed, createdAt: new Date() } } }
       );
     }

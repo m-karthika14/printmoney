@@ -18,7 +18,7 @@ async function generateShopQRFile(shop_id) {
 
     // Save relative URL in MongoDB
     const qrUrl = `/uploads/qrcodes/${shop_id}.png`;
-    await NewShop.updateOne({ $or: [{ shop_id }, { shopId: shop_id }] }, { $set: { qr_code_url: qrUrl } });
+  await NewShop.updateOne({ shop_id }, { $set: { qr_code_url: qrUrl } });
 
     console.log(`QR PNG generated for shop ${shop_id}`);
     return qrUrl;

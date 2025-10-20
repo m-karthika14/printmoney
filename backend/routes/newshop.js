@@ -6,9 +6,8 @@ const NewShop = require('../models/NewShop');
 // Helper: resolve by id (ObjectId) or shop_id/shopId string
 async function resolveShopByAny(idOrCode) {
 	if (!idOrCode) return null;
-	const isHex24 = /^[a-fA-F0-9]{24}$/.test(idOrCode);
-	if (isHex24) return await NewShop.findById(idOrCode);
-	return await NewShop.findOne({ $or: [{ shop_id: idOrCode }, { shopId: idOrCode }] });
+	// Enforce shop_id (public code) lookup only for external routes. If an ObjectId is provided it's treated as invalid.
+	return await NewShop.findOne({ shop_id: idOrCode });
 }
 
 // GET: fetch only pricing.fixedDocuments for a shop

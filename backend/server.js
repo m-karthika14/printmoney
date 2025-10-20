@@ -189,7 +189,7 @@ mongoose.connect(process.env.MONGO_URI, {
           });
           // Write to map-style dailystats
           await NewShop.updateOne(
-            { $or: [{ shop_id: sid }, { shopId: sid }] },
+            { shop_id: sid },
             { $set: { [`dailystats.${dayStr}.totalJobsCompleted`]: completed, [`dailystats.${dayStr}.createdAt`]: new Date() } }
           );
         }
@@ -225,7 +225,7 @@ mongoose.connect(process.env.MONGO_URI, {
             ]);
             const total = rows[0]?.total || 0;
              await NewShop.updateOne(
-               { $or: [{ shop_id: sid }, { shopId: sid }] },
+               { shop_id: sid },
                { $set: { [`totalRevenue.daily.${dayStr}.totalRevenue`]: total, [`totalRevenue.daily.${dayStr}.createdAt`]: new Date() } }
              );
           }

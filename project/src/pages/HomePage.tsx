@@ -1,4 +1,4 @@
-import React from 'react';
+// React import not required with new JSX runtime
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {

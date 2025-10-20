@@ -64,10 +64,10 @@ const ShopProfile: React.FC = () => {
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [shopData, setShopData] = useState<ShopProfileData>(defaultShopData);
   React.useEffect(() => {
-    // Fetch shop profile from backend
+    // Fetch shop profile from backend using canonical shopId (public)
     async function fetchShop() {
       try {
-  const id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
+  const id = localStorage.getItem('shopId') || localStorage.getItem('shop_id');
         console.log('shopId from localStorage:', id);
         if (!id) return;
   const res = await apiFetch(`/api/shops/${id}`);
@@ -180,18 +180,13 @@ const ShopProfile: React.FC = () => {
 
   const fetchShop = async () => {
     try {
-      // Try to get _id from localStorage if previously saved
-      let id = localStorage.getItem('shopMongoId');
-      if (!id) {
-        // Fallback to canonical shop_id
-        id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
-      }
+      // Use canonical shopId from localStorage
+      let id = localStorage.getItem('shopId') || localStorage.getItem('shop_id');
       if (!id) return;
   const res = await apiFetch(`/api/shops/${id}`);
       if (!res.ok) return;
       const shop: ShopProfileData = await res.json();
-      // Save _id to localStorage for future requests
-      if (shop._id) localStorage.setItem('shopMongoId', shop._id);
+      // Do not persist Mongo _id; keep using public shopId
       const workingHours: Record<DayOfWeek, WorkingHour> = { ...defaultWorkingHours, ...(shop.workingHours || {}) };
       setShopData({ ...defaultShopData, ...shop, name: shop.name || shop.shopName, workingHours });
     } catch (err) {
@@ -204,8 +199,8 @@ const ShopProfile: React.FC = () => {
     // Optimistically update local state
     setShopData((prev) => ({ ...prev, isOpen: newStatus }));
     try {
-      // Always use _id if available, fallback to shopId
-      const id = shopData._id || localStorage.getItem('shopMongoId') || shopData.shopId;
+  // Use canonical public shopId for public API calls
+  const id = shopData.shopId || localStorage.getItem('shopId') || localStorage.getItem('shop_id');
       if (!id) return;
       const res = await apiFetch(`/api/shops/${id}/profile`, {
         method: 'PATCH',

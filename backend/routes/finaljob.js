@@ -13,7 +13,7 @@ router.post('/assign', async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
     // Require canonical shopId form for consistency
-  const shop = await NewShop.findOne({ $or: [{ shop_id: shop_id }, { shopId: shop_id }] });
+  const shop = await NewShop.findOne({ shop_id: shop_id });
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
     const autoPrintMode = !!shop.autoPrintMode;
     // If a FinalJob already exists for this job_number, return it (idempotent)
@@ -166,7 +166,7 @@ router.patch('/:id/status', async (req, res) => {
     // If the job completed and the printer was pending_off, flip it to off now
     if (job_status === 'completed' && job.shop_id && (job.printerid || job.assigned_printer)) {
       try {
-        const shop = await NewShop.findOne({ shopId: job.shop_id });
+  const shop = await NewShop.findOne({ shop_id: job.shop_id });
         if (shop) {
           const pid = job.printerid || job.assigned_printer;
           let printer = (shop.printers || []).find(p => (p.printerid || p.printerId) === pid);
@@ -193,7 +193,7 @@ router.patch('/:id/status', async (req, res) => {
         setOps[`dailystats.${dayStr}.totalJobsCompleted`] = 1; // will use $inc
         setOps[`dailystats.${dayStr}.createdAt`] = new Date();
         await NewShop.updateOne(
-          { $or: [{ shop_id: job.shop_id }, { shopId: job.shop_id }] },
+          { shop_id: job.shop_id },
           {
             $inc: { [`dailystats.${dayStr}.totalJobsCompleted`]: 1 },
             $set: { [`dailystats.${dayStr}.createdAt`]: new Date() }

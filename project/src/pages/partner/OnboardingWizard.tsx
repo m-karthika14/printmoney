@@ -47,9 +47,8 @@ const OnboardingWizard: React.FC = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   // Removed unused: const [paymentProcessed, setPaymentProcessed] = useState(false);
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
-  // Store both shopId (public) and _id (MongoDB) for backend updates
+  // Store public shopId for backend updates
   const [shopId, setShopId] = useState<string | null>(null);
-  const [mongoId, setMongoId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [shopLoading, setShopLoading] = useState(false);
   const [shopError, setShopError] = useState<string | null>(null);
@@ -148,15 +147,26 @@ const OnboardingWizard: React.FC = () => {
       const shops = await res.json();
   const shop = shops.find((s: any) => s.email === email);
   if (!shop) throw new Error('Shop not found');
-  setShopId(shop.shopId);
-  setApiKey(shop.apiKey);
-  setMongoId(shop._id); // Store MongoDB _id for backend PATCH
+  // Some documents use shopId or shop_id; prefer the public shopId
+  const publicId = shop.shopId || shop.shop_id || null;
+  setShopId(publicId);
+  setApiKey(shop.apiKey || shop.apikey || null);
+  // Persist only the public shopId (do not persist Mongo _id)
+  if (publicId) localStorage.setItem('shopId', publicId);
   setShowCredentialsModal(true);
     } catch (err: any) {
       setShopError(err.message || 'Failed to fetch shop credentials');
     } finally {
       setShopLoading(false);
     }
+  };
+
+  // Helper to resolve canonical id for API calls: only public shopId (persisted in localStorage)
+  const getCanonicalId = (): string | null => {
+    if (shopId) return shopId;
+    const fromLocalShopId = localStorage.getItem('shopId') || localStorage.getItem('shop_id');
+    if (fromLocalShopId) return fromLocalShopId;
+    return null;
   };
 
   const closeCredentialsModal = () => {
@@ -166,10 +176,11 @@ const OnboardingWizard: React.FC = () => {
 
   // PATCH plan to backend
   const patchPlan = async () => {
-    if (!mongoId || !selectedPlan) return;
+    const id = getCanonicalId();
+    if (!id || !selectedPlan) return;
     const planObj = pricingPlans.find(p => p.id === selectedPlan);
     if (!planObj) return;
-    await apiFetch(`/api/shops/${mongoId}/plan`, {
+  await apiFetch(`/api/shops/${id}/plan`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -185,29 +196,41 @@ const OnboardingWizard: React.FC = () => {
 
   // PATCH payment to backend
   const patchPayment = async (upiIdValue?: string) => {
-    if (!mongoId || !selectedPaymentMethod) return;
-    await apiFetch(`/api/shops/${mongoId}/payment`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        method: selectedPaymentMethod,
-        details: { upiId: upiIdValue || '' },
-        status: 'pending',
-        completed: false
-      })
-    });
+    const id = getCanonicalId();
+    if (!id || !selectedPaymentMethod) return;
+    try {
+      const res = await apiFetch(`/api/shops/${id}/payment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: selectedPaymentMethod,
+          details: { upiId: upiIdValue || '' },
+          status: 'pending',
+          completed: false
+        })
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('patchPayment: non-ok response', res.status, text);
+      } else {
+        console.log('patchPayment: success', res.status);
+      }
+    } catch (err) {
+      console.error('patchPayment: request failed', err);
+    }
   };
 
   // ...existing code...
 
   // PATCH services to backend
   const patchServices = async () => {
-    if (!mongoId) return;
+    const id = getCanonicalId();
+    if (!id) return;
     const allServices = [
       ...services.filter(s => s.selected),
       ...customServices.map(s => ({ ...s, selected: true, isCustom: true }))
     ];
-    await apiFetch(`/api/shops/${mongoId}/services`, {
+  await apiFetch(`/api/shops/${id}/services`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ services: allServices })
@@ -217,19 +240,31 @@ const OnboardingWizard: React.FC = () => {
   // Call PATCH after each step
   // PATCH printers to backend with correct schema after agent install
   const patchPrinters = async () => {
-    if (!mongoId) {
-      console.log('patchPrinters: mongoId is missing');
+    const id = getCanonicalId();
+    if (!id) {
+      console.log('patchPrinters: shop id is missing (need shopId)');
       return;
     }
     // Only update agentDetected values for existing printers, prevent dummies and samples
     let currentPrinters: any[] = [];
     try {
-  const res = await apiFetch(`/api/shops/${mongoId}/printers`);
+      const res = await apiFetch(`/api/shops/${id}/printers`);
       if (res.ok) {
         const data = await res.json();
-        currentPrinters = Array.isArray(data.printers) ? data.printers : [];
+        // backend returns either array or { printers: [] }
+        if (Array.isArray(data)) currentPrinters = data;
+        else if (Array.isArray(data.printers)) currentPrinters = data.printers;
+        else currentPrinters = [];
+      } else if (res.status === 404) {
+        // Not found -> no printers yet
+        currentPrinters = [];
+      } else {
+        const txt = await res.text();
+        console.warn('patchPrinters: GET printers returned', res.status, txt);
       }
-    } catch {}
+    } catch (e) {
+      console.warn('patchPrinters: failed to fetch current printers', e);
+    }
 
     // Only use agent-detected printers (no samples/dummies)
     const realPrinters = detectedPrinters.filter(printer => printer.id !== 'dummy' && printer.name.toLowerCase() !== 'dummy' && printer.name !== 'HP LaserJet Pro' && printer.name !== 'Canon PIXMA');
@@ -283,13 +318,18 @@ const OnboardingWizard: React.FC = () => {
     // Only one entry per agent-detected printer
     console.log('patchPrinters: sending printers array:', updatedPrinters);
     try {
-      const response = await apiFetch(`/api/shops/${mongoId}/printers`, {
+      const response = await apiFetch(`/api/shops/${id}/printers`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ printers: updatedPrinters })
       });
-      const result = await response.json();
-      console.log('patchPrinters: backend response:', result);
+      if (!response.ok) {
+        const txt = await response.text();
+        console.error('patchPrinters: PATCH failed', response.status, txt);
+      } else {
+        const result = await response.json();
+        console.log('patchPrinters: backend response:', result);
+      }
     } catch (err) {
       console.error('patchPrinters: error sending printers:', err);
     }
@@ -297,15 +337,39 @@ const OnboardingWizard: React.FC = () => {
 
   // PATCH pricing to backend
   const patchPricing = async () => {
-    if (!mongoId) return;
+    const id = getCanonicalId();
+    if (!id) return;
     try {
-  const response = await apiFetch(`/api/shops/shop/${mongoId}/pricing`, {
+  // Map local pricing (A4 fields) into paperSizePricing.A4
+  const a4 = {
+    bwSingle: pricing.bwSingle === '' ? 0 : parseFloat(pricing.bwSingle),
+    colorSingle: pricing.colorSingle === '' ? 0 : parseFloat(pricing.colorSingle),
+    bwDouble: pricing.bwDouble === '' ? 0 : parseFloat(pricing.bwDouble),
+    colorDouble: pricing.colorDouble === '' ? 0 : parseFloat(pricing.colorDouble)
+  };
+
+  // Include legacy top-level fields for backward compatibility with remote backend
+  const body = { 
+    paperSizePricing: { A4: a4 },
+    bwSingle: a4.bwSingle,
+    colorSingle: a4.colorSingle,
+    bwDouble: a4.bwDouble,
+    colorDouble: a4.colorDouble
+  };
+  // Debug: log outgoing payload so we can confirm what the frontend sends
+  console.log('[Onboarding][patchPricing] Sending PATCH payload for shop', id, body);
+  const response = await apiFetch(`/api/shops/shop/${id}/pricing`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pricing })
+        body: JSON.stringify(body)
       });
-      const result = await response.json();
-      console.log('patchPricing: backend response:', result);
+      if (!response.ok) {
+        const txt = await response.text();
+        console.error('patchPricing: PATCH failed', response.status, txt);
+      } else {
+        const result = await response.json();
+        console.log('patchPricing: backend response:', result);
+      }
     } catch (err) {
       console.error('patchPricing: error sending pricing:', err);
     }
@@ -666,8 +730,8 @@ const OnboardingWizard: React.FC = () => {
     setAgentSuccess(false);
     try {
       // Fetch shopId if not already set
-      // Always use mongoId for PATCH
-      let id = mongoId;
+    // Use public shopId for PATCH
+  let id = getCanonicalId();
       if (!id) {
         // Fallback: fetch by email if not in state
         const email = localStorage.getItem('registeredShopEmail');
@@ -676,10 +740,9 @@ const OnboardingWizard: React.FC = () => {
         if (!res.ok) throw new Error('Failed to fetch shop data');
         const shops = await res.json();
         const shop = shops.find((s: any) => s.email === email);
-        if (!shop) throw new Error('Shop not found');
-        id = shop._id;
-        setMongoId(shop._id);
-        setShopId(shop.shopId);
+  if (!shop) throw new Error('Shop not found');
+  id = shop.shopId || shop.shop_id;
+  setShopId(id);
       }
       // PATCH agent status using MongoDB _id
       const res = await apiFetch(`/api/shops/${id}/agent`, {

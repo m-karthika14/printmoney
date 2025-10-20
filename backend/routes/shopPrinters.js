@@ -5,7 +5,7 @@ const NewShop = require('../models/NewShop');
 // GET all printers for a shop
 router.get('/:shopId/printers', async (req, res) => {
   try {
-    const shop = await NewShop.findOne({ shopId: req.params.shopId }).lean({ virtuals: true });
+  const shop = await NewShop.findOne({ shop_id: req.params.shopId }).lean({ virtuals: true });
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
     const printers = (shop.printers || []).map(p => ({
       ...p,
@@ -20,7 +20,7 @@ router.get('/:shopId/printers', async (req, res) => {
 // PATCH manualOverride for a printer
 router.patch('/:shopId/printers/:printerid', async (req, res) => {
   try {
-    const shop = await NewShop.findOne({ shopId: req.params.shopId });
+  const shop = await NewShop.findOne({ shop_id: req.params.shopId });
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
     const printer = shop.printers.find(p => p.printerid === req.params.printerid);
     if (!printer) return res.status(404).json({ message: 'Printer not found' });
