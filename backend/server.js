@@ -5,7 +5,14 @@ const dotenv = require('dotenv');
 const path = require('path');
 const cron = require('node-cron');
 
-dotenv.config();
+// Load environment variables. Prefer a .env file colocated with this server.js file
+// so starting the server from the repo root (node backend/server.js) still picks up backend/.env.
+const envPath = path.join(__dirname, '.env');
+if (require('fs').existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+} else {
+  dotenv.config();
+}
 const app = express();
 
 
@@ -156,7 +163,21 @@ mongoose.connect(process.env.MONGO_URI, {
     // TTL: 24 hours on createdAt
     FinalJob.collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 }).catch(()=>{});
   const NewShop = require('./models/NewShop');
-  NewShop.collection.createIndex({ shopId: 1 }).catch(()=>{});
+  // Cleanup legacy/bad unique index on virtual field `shopId` if it exists
+  NewShop.collection.indexes()
+    .then(idx => {
+      const bad = idx.find(i => i.name === 'shopId_1');
+      if (bad) {
+        return NewShop.collection.dropIndex('shopId_1')
+          .then(() => console.log('[Index] Dropped legacy index shopId_1'))
+          .catch(() => {});
+      }
+    })
+    .catch(e => console.warn('[Index] Failed to inspect/drop shopId_1:', e.message));
+  // Ensure proper unique indexes on canonical fields
+  NewShop.collection.createIndex({ shop_id: 1 }, { unique: true }).catch(()=>{});
+  NewShop.collection.createIndex({ email: 1 }, { unique: true }).catch(()=>{});
+  NewShop.collection.createIndex({ apiKey: 1 }, { unique: true }).catch(()=>{});
   } catch (e) {
     console.warn('Index setup warning:', e.message);
   }
@@ -168,13 +189,13 @@ mongoose.connect(process.env.MONGO_URI, {
     // Cron: write previous day's completedCount into each shop's embedded dailystats array
     cron.schedule('5 0 * * *', async () => {
       try {
-        const shops = await NewShop.find({}, { shop_id: 1, shopId: 1 }).lean();
+  const shops = await NewShop.find({}, { shop_id: 1 }).lean();
         const prev = new Date();
         prev.setDate(prev.getDate() - 1);
         prev.setHours(0,0,0,0);
         const dayStr = prev.toISOString().slice(0,10);
         for (const s of shops) {
-          const sid = s.shop_id || s.shopId;
+          const sid = s.shop_id;
           if (!sid) continue;
           const start = new Date(prev);
           const end = new Date(prev); end.setDate(end.getDate() + 1);
@@ -212,12 +233,12 @@ mongoose.connect(process.env.MONGO_URI, {
       // At 00:10 every day, compute and store previous day's totalRevenue per shop
       cron.schedule('10 0 * * *', async () => {
         try {
-          const shops = await NewShop.find({}, { shop_id: 1, shopId: 1 }).lean();
+          const shops = await NewShop.find({}, { shop_id: 1 }).lean();
           const end = new Date(); end.setHours(0,0,0,0); // today 00:00
           const start = new Date(end); start.setDate(start.getDate() - 1); // yesterday 00:00
           const dayStr = start.toISOString().slice(0,10);
           for (const s of shops) {
-            const sid = s.shop_id || s.shopId; if (!sid) continue;
+            const sid = s.shop_id; if (!sid) continue;
             const rows = await FinalJob.aggregate([
               { $match: { shop_id: sid, job_status: 'completed', createdAt: { $gte: start, $lt: end } } },
               { $project: { amount: { $cond: [ { $isNumber: '$total_amount' }, '$total_amount', { $convert: { input: '$total_amount', to: 'double', onError: 0, onNull: 0 } } ] } } },

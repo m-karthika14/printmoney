@@ -12,6 +12,7 @@ const ApplyShopPage: React.FC = () => {
     password: ''
   });
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -21,6 +22,7 @@ const ApplyShopPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsSubmitting(true);
     try {
       const res = await apiFetch('/api/shops', {
         method: 'POST',
@@ -28,15 +30,32 @@ const ApplyShopPage: React.FC = () => {
         body: JSON.stringify(form)
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Registration failed');
+        // Try to parse JSON error body, fallback to text
+        let msg = 'Registration failed';
+        try {
+          const data = await res.json();
+          msg = data?.message || JSON.stringify(data);
+        } catch (parseErr) {
+          try {
+            const text = await res.text();
+            if (text) msg = text;
+          } catch (_) {}
+        }
+        throw new Error(msg);
       }
-      // Store email in localStorage for onboarding fetch
-      localStorage.setItem('registeredShopEmail', form.email);
+  const data = await res.json();
+  // Persist identifiers for onboarding
+  const publicId = data?.shopId || data?.shop_id || null;
+  const apiKey = data?.apiKey || data?.apikey || null;
+  if (publicId) localStorage.setItem('shopId', publicId);
+  if (apiKey) localStorage.setItem('apiKey', apiKey);
+  localStorage.setItem('registeredShopEmail', form.email);
       navigate('/partner/onboarding');
     } catch (err: any) {
-      setError(err.message);
+      console.error('ApplyShop registration error:', err);
+      setError(err?.message || 'Registration failed - network or server error');
     }
+    setIsSubmitting(false);
   };
 
   return (
@@ -114,9 +133,10 @@ const ApplyShopPage: React.FC = () => {
               {error && <div className="text-red-500 text-sm text-center font-semibold">{error}</div>}
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-lime-500 to-emerald-500 text-white py-3 rounded-xl font-semibold text-lg shadow-lg hover:shadow-2xl transition-all duration-300"
+                className={`w-full bg-gradient-to-r from-lime-500 to-emerald-500 text-white py-3 rounded-xl font-semibold text-lg shadow-lg hover:shadow-2xl transition-all duration-300 ${isSubmitting ? 'opacity-70 cursor-wait' : ''}`}
+                disabled={isSubmitting}
               >
-                Register
+                {isSubmitting ? 'Registering...' : 'Register'}
               </button>
             </div>
           </motion.form>

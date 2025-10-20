@@ -45,7 +45,7 @@ router.get('/shop/:id/paper-size-pricing', async (req, res) => {
 	try {
 		const shop = await resolveShopByAny(req.params.id);
 		if (!shop) {
-		const shop = await NewShop.findByIdAndDelete(shopRaw._id);
+			return res.status(404).json({ message: 'Shop not found' });
 		}
 		// Ensure A4 exists in response for backward compatibility: some legacy shops may not have A4 field
 		const defaults = {
@@ -161,7 +161,7 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 	const shop = await NewShop.findOne({ shop_id: shopId }).lean();
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 
-		const canonical = shop.shop_id || shop.shopId || shopId;
+		const canonical = shop.shop_id || shopId;
 
 		// Rolling 24-hour window counts using FinalJob (completed within last 24 hours)
 		const now = new Date();
@@ -301,9 +301,9 @@ router.patch('/:shopId/isopen', async (req, res) => {
 	try {
 		const { isOpen } = req.body || {};
 		if (typeof isOpen !== 'boolean') return res.status(400).json({ message: 'isOpen boolean is required' });
-		const shopId = req.params.shopId;
+	const shopId = req.params.shopId;
 		const shop = await NewShop.findOneAndUpdate(
-				{ shop_id: shopId },
+		{ shop_id: shopId },
 			{ $set: { isOpen } },
 			{ new: true }
 		).lean();
@@ -673,7 +673,7 @@ router.post('/:shopId/printers/:printerId/sync', async (req, res) => {
 // PATCH /api/shops/:shopId/printers/:printerId/manualStatus  (shopkeeper toggles printer on/off for allocation)
 router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 	try {
-		const { manualStatus } = req.body || {};
+	const { manualStatus } = req.body || {};
 		if (!['on','off','pending_off'].includes(manualStatus)) {
 			return res.status(400).json({ message: 'Invalid manualStatus. Use on/off/pending_off' });
 		}
@@ -734,7 +734,7 @@ router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 		if (manualStatus === 'off') {
 			const pid = printer.printerid || printer.printerId;
 			const pname = printer.agentDetected?.name;
-			const canonicalShopId = shop.shop_id || shop.shopId || shopId;
+			const canonicalShopId = shop.shop_id || shopId;
 			const activeJob = await FinalJob.findOne({
 				shop_id: canonicalShopId,
 				$or: [
@@ -873,7 +873,7 @@ router.get('/:shopId/total-revenue', async (req, res) => {
 				const todayKey = today.toISOString().slice(0,10);
 				const hasToday = payload.daily && Object.prototype.hasOwnProperty.call(payload.daily, todayKey);
 				if (!hasToday) {
-					const canonical = shop.shop_id || shop.shopId || shopId;
+					const canonical = shop.shop_id || shopId;
 					const end = new Date();
 					const rows = await FinalJob.aggregate([
 						{ $match: { shop_id: canonical, job_status: 'completed', createdAt: { $gte: today, $lt: end } } },
@@ -950,7 +950,7 @@ router.post('/admin/dailystats/refresh-all', async (req, res) => {
 		const dayStr = start.toISOString().slice(0,10);
 		const results = [];
 		for (const s of shops) {
-			const sid = s.shop_id || s.shopId;
+			const sid = s.shop_id;
 			if (!sid) continue;
 			const completed = await FinalJob.countDocuments({
 				shop_id: sid,
@@ -1027,14 +1027,17 @@ router.post('/', async (req, res) => {
 				lastErr = new Error('shopId collision (pre-check)');
 				continue; // try again
 			}
-			const shopData = Object.assign({}, baseData, { shopId: candidateShopId, apiKey: candidateApiKey });
+			// Persist the generated identifier into the schema's canonical field `shop_id`.
+			// Using `shopId` here previously resulted in `shop_id` being null and triggered
+			// a duplicate-key error against the unique index on `shop_id`.
+			const shopData = Object.assign({}, baseData, { shop_id: candidateShopId, apiKey: candidateApiKey });
 			const shop = new NewShop(shopData);
 			try {
 				const savedShop = await shop.save();
 				// Generate and persist QR PNG for this shop
 				try {
 					const { generateShopQRFile } = require('../utils/generateShopQRFile');
-					await generateShopQRFile(savedShop.shop_id || savedShop.shopId || candidateShopId);
+					await generateShopQRFile(savedShop.shop_id || candidateShopId);
 				} catch (qrErr) {
 					console.warn('[SHOP CREATE] QR generation warning:', qrErr.message);
 				}
@@ -1049,6 +1052,7 @@ router.post('/', async (req, res) => {
 			}
 		}
 	console.error('[SHOP CREATE] Failed to generate unique shopId after attempts', lastErr);
+	return res.status(500).json({ message: 'Failed to generate unique shopId', error: lastErr?.message || null });
 	} catch (error) {
 		res.status(400).json({ message: error.message || 'Registration failed' });
 	}
@@ -1065,7 +1069,7 @@ router.get('/:shop_id/qr', async (req, res) => {
 		if (!qrUrl) {
 			try {
 				const { generateShopQRFile } = require('../utils/generateShopQRFile');
-				qrUrl = await generateShopQRFile(shop.shop_id || shop.shopId || id);
+				qrUrl = await generateShopQRFile(shop.shop_id || id);
 			} catch (e) {
 				// ignore and just return without qr
 			}
@@ -1073,7 +1077,7 @@ router.get('/:shop_id/qr', async (req, res) => {
 		res.json({
 			success: true,
 			qr_code_url: qrUrl || null,
-			link: `https://www.eazeprint.com/app?shop=${encodeURIComponent(shop.shop_id || shop.shopId || id)}`
+			link: `https://www.eazeprint.com/app?shop=${encodeURIComponent(shop.shop_id || id)}`
 		});
 	} catch (err) {
 		res.status(500).json({ message: err.message });

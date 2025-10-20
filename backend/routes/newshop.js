@@ -3,10 +3,10 @@ const router = express.Router();
 const NewShop = require('../models/NewShop');
 // ...existing code...
 
-// Helper: resolve by id (ObjectId) or shop_id/shopId string
+// Helper: resolve by public code only (shop_id string)
 async function resolveShopByAny(idOrCode) {
 	if (!idOrCode) return null;
-	// Enforce shop_id (public code) lookup only for external routes. If an ObjectId is provided it's treated as invalid.
+	// Enforce shop_id (public code) lookup only for external routes.
 	return await NewShop.findOne({ shop_id: idOrCode });
 }
 
