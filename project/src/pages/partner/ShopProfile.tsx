@@ -135,7 +135,8 @@ const ShopProfile: React.FC = () => {
     async function saveProfile() {
       try {
         // Use shopId from tempData/shopData
-        const id = tempData._id || shopData._id || tempData.shopId || shopData.shopId;
+  // Always use the public shop_id from localStorage or state
+  const id = localStorage.getItem('shop_id') || tempData.shopId || shopData.shopId;
         if (!id) return;
         // Ensure all days have open, close, isClosed
         const workingHoursToSend: Record<DayOfWeek, WorkingHour> = { ...tempData.workingHours };
@@ -181,7 +182,7 @@ const ShopProfile: React.FC = () => {
   const fetchShop = async () => {
     try {
       // Use canonical shopId from localStorage
-      let id = localStorage.getItem('shopId') || localStorage.getItem('shop_id');
+  let id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
       if (!id) return;
   const res = await apiFetch(`/api/shops/${id}`);
       if (!res.ok) return;

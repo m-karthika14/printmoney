@@ -47,7 +47,10 @@ const ApplyShopPage: React.FC = () => {
   // Persist identifiers for onboarding
   const publicId = data?.shopId || data?.shop_id || null;
   const apiKey = data?.apiKey || data?.apikey || null;
-  if (publicId) localStorage.setItem('shopId', publicId);
+      if (publicId) {
+        localStorage.setItem('shopId', publicId);
+        localStorage.setItem('shop_id', publicId);
+      }
   if (apiKey) localStorage.setItem('apiKey', apiKey);
   localStorage.setItem('registeredShopEmail', form.email);
       navigate('/partner/onboarding');
