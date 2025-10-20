@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Search } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
+import { apiFetch } from '../../lib/api';
 
 type QueueJob = {
   finaljobId: string;
@@ -56,9 +57,9 @@ const PrintHistory: React.FC = () => {
     setError(null);
     try {
       const [queueRes, dsRes, shopSumRes] = await Promise.all([
-        fetch(`/api/jobs/queue/${sid}`),
-        fetch(`/api/shops/${sid}/dailystats?limit=365`),
-        fetch(`/api/shops/${sid}/total-revenue?sum=true`)
+        apiFetch(`/api/jobs/queue/${sid}`),
+        apiFetch(`/api/shops/${sid}/dailystats?limit=365`),
+        apiFetch(`/api/shops/${sid}/total-revenue?sum=true`)
       ]);
       if (!queueRes.ok) throw new Error('Failed to fetch jobs');
       if (!dsRes.ok) throw new Error('Failed to fetch dailystats');

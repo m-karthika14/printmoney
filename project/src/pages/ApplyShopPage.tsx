@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { apiFetch } from '../lib/api';
 
 const ApplyShopPage: React.FC = () => {
   const [form, setForm] = useState({
@@ -21,7 +22,7 @@ const ApplyShopPage: React.FC = () => {
     e.preventDefault();
     setError('');
     try {
-      const res = await fetch('/api/shops', {
+      const res = await apiFetch('/api/shops', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)

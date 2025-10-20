@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../../lib/api';
 import logo from '../../../logo.png';
 import { Link, useLocation } from 'react-router-dom';
 import { 
@@ -26,7 +27,7 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const canonical = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
       if (!canonical) return;
       try {
-  const res = await fetch(`http://localhost:5000/api/shops/by-shop/${canonical}`);
+  const res = await apiFetch(`/api/shops/by-shop/${canonical}`);
         if (res.ok) {
           const shop = await res.json();
           setShopData({ name: shop.name || shop.shopName || '', shopId: shop.shop_id || shop.shopId || '' });

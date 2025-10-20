@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, CreditCard, Download, Printer, DollarSign, Settings, FileText, ArrowRight, Plus, X, Edit3, Building2, CreditCard as CardIcon, Eye, EyeOff } from 'lucide-react';
 // import upiLogo from '../../assets/upi-logo.png'; // Removed: file does not exist
+import { apiFetch } from '../../lib/api';
 
 interface PricingPlan {
   id: string;
@@ -142,7 +143,7 @@ const OnboardingWizard: React.FC = () => {
       // Fetch shopId and apiKey from backend using email stored in localStorage
       const email = localStorage.getItem('registeredShopEmail');
       if (!email) throw new Error('No registered shop email found.');
-      const res = await fetch(`/api/shops`);
+  const res = await apiFetch(`/api/shops`);
       if (!res.ok) throw new Error('Failed to fetch shop data');
       const shops = await res.json();
   const shop = shops.find((s: any) => s.email === email);
@@ -168,7 +169,7 @@ const OnboardingWizard: React.FC = () => {
     if (!mongoId || !selectedPlan) return;
     const planObj = pricingPlans.find(p => p.id === selectedPlan);
     if (!planObj) return;
-    await fetch(`/api/shops/${mongoId}/plan`, {
+    await apiFetch(`/api/shops/${mongoId}/plan`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -185,7 +186,7 @@ const OnboardingWizard: React.FC = () => {
   // PATCH payment to backend
   const patchPayment = async (upiIdValue?: string) => {
     if (!mongoId || !selectedPaymentMethod) return;
-    await fetch(`/api/shops/${mongoId}/payment`, {
+    await apiFetch(`/api/shops/${mongoId}/payment`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -206,7 +207,7 @@ const OnboardingWizard: React.FC = () => {
       ...services.filter(s => s.selected),
       ...customServices.map(s => ({ ...s, selected: true, isCustom: true }))
     ];
-    await fetch(`/api/shops/${mongoId}/services`, {
+    await apiFetch(`/api/shops/${mongoId}/services`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ services: allServices })
@@ -223,7 +224,7 @@ const OnboardingWizard: React.FC = () => {
     // Only update agentDetected values for existing printers, prevent dummies and samples
     let currentPrinters: any[] = [];
     try {
-      const res = await fetch(`http://localhost:5000/api/shops/${mongoId}/printers`);
+  const res = await apiFetch(`/api/shops/${mongoId}/printers`);
       if (res.ok) {
         const data = await res.json();
         currentPrinters = Array.isArray(data.printers) ? data.printers : [];
@@ -282,7 +283,7 @@ const OnboardingWizard: React.FC = () => {
     // Only one entry per agent-detected printer
     console.log('patchPrinters: sending printers array:', updatedPrinters);
     try {
-      const response = await fetch(`http://localhost:5000/api/shops/${mongoId}/printers`, {
+      const response = await apiFetch(`/api/shops/${mongoId}/printers`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ printers: updatedPrinters })
@@ -298,7 +299,7 @@ const OnboardingWizard: React.FC = () => {
   const patchPricing = async () => {
     if (!mongoId) return;
     try {
-  const response = await fetch(`http://localhost:5000/api/shops/shop/${mongoId}/pricing`, {
+  const response = await apiFetch(`/api/shops/shop/${mongoId}/pricing`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pricing })
@@ -671,7 +672,7 @@ const OnboardingWizard: React.FC = () => {
         // Fallback: fetch by email if not in state
         const email = localStorage.getItem('registeredShopEmail');
         if (!email) throw new Error('No registered shop email found.');
-        const res = await fetch(`/api/shops`);
+  const res = await apiFetch(`/api/shops`);
         if (!res.ok) throw new Error('Failed to fetch shop data');
         const shops = await res.json();
         const shop = shops.find((s: any) => s.email === email);
@@ -681,7 +682,7 @@ const OnboardingWizard: React.FC = () => {
         setShopId(shop.shopId);
       }
       // PATCH agent status using MongoDB _id
-      const res = await fetch(`/api/shops/${id}/agent`, {
+      const res = await apiFetch(`/api/shops/${id}/agent`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'installed', installedAt: new Date() })

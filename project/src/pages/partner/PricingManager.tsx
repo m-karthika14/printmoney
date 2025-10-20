@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DollarSign, Save, RotateCcw, FileText, Palette, Plus, Trash2, Upload, Download, ChevronRight } from 'lucide-react';
+import { DollarSign, Save, FileText, Palette, Plus, Trash2, Upload, Download, ChevronRight } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
+import { apiFetch } from '../../lib/api';
 
 const PricingManager = () => {
   const predefinedDiscounts = [
@@ -142,7 +143,7 @@ const PricingManager = () => {
   useEffect(() => {
     if (!shopId) return;
   // Accepts either _id or shop_id; we pass canonical shop_id
-  fetch(`http://localhost:5000/api/newshop/${shopId}/fixed-documents`)
+  apiFetch(`/api/newshop/${shopId}/fixed-documents`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -156,7 +157,7 @@ const PricingManager = () => {
     if (!shopId) return;
 
   // Flexible route: accepts _id or shop_id
-  fetch(`http://localhost:5000/api/shops/shop/${shopId}/pricing`)
+  apiFetch(`/api/shops/shop/${shopId}/pricing`)
       .then(res => res.json())
       .then(data => {
         const p = data.pricing || {};
@@ -168,7 +169,7 @@ const PricingManager = () => {
         });
       });
 
-  fetch(`http://localhost:5000/api/shops/shop/${shopId}/paper-size-pricing`)
+  apiFetch(`/api/shops/shop/${shopId}/paper-size-pricing`)
       .then(res => res.json())
       .then(data => {
         if (data.paperSizePricing) {
@@ -176,7 +177,7 @@ const PricingManager = () => {
         }
       });
 
-  fetch(`http://localhost:5000/api/newshop/${shopId}/discounts`)
+  apiFetch(`/api/newshop/${shopId}/discounts`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -185,7 +186,7 @@ const PricingManager = () => {
       });
 
   // Fetch shop details flexibly by shop_id
-  fetch(`http://localhost:5000/api/shops/${shopId}`)
+  apiFetch(`/api/shops/${shopId}`)
       .then(res => res.json())
       .then(data => {
         const allServices = Array.isArray(data.services) ? data.services : [];
@@ -228,7 +229,7 @@ const PricingManager = () => {
       (async () => {
         try {
           // Services route updated to accept _id or shop_id
-          await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
+          await apiFetch(`/api/shops/${shopId}/services`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ services: allServices })
@@ -254,7 +255,7 @@ const PricingManager = () => {
 
       (async () => {
         try {
-          await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
+          await apiFetch(`/api/shops/${shopId}/services`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ services: allServices })
@@ -277,7 +278,7 @@ const PricingManager = () => {
 
       (async () => {
         try {
-          await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
+          await apiFetch(`/api/shops/${shopId}/services`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ services: allServices })
@@ -310,7 +311,7 @@ const PricingManager = () => {
 
       (async () => {
         try {
-          await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
+          await apiFetch(`/api/shops/${shopId}/services`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ services: allServices })
@@ -333,7 +334,7 @@ const PricingManager = () => {
 
       (async () => {
         try {
-          await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
+          await apiFetch(`/api/shops/${shopId}/services`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ services: allServices })
@@ -356,7 +357,7 @@ const PricingManager = () => {
 
       (async () => {
         try {
-          await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
+          await apiFetch(`/api/shops/${shopId}/services`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ services: allServices })
@@ -381,7 +382,7 @@ const PricingManager = () => {
     setIsSaving(true);
     
     try {
-      const response = await fetch(`http://localhost:5000/api/shops/${shopId}/services`, {
+      const response = await apiFetch(`/api/shops/${shopId}/services`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ services: allServices })
@@ -405,7 +406,7 @@ const PricingManager = () => {
 
   const handleSave = async () => {
     try {
-      await fetch(`http://localhost:5000/api/shops/shop/${shopId}/pricing`, {
+      await apiFetch(`/api/shops/shop/${shopId}/pricing`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -423,37 +424,7 @@ const PricingManager = () => {
     }
   };
 
-  const handleReset = () => {
-    setPricing({
-      bwSingleSidePrice: 2,
-      colorSingleSidePrice: 8,
-      bwDoubleSidePrice: 3,
-      colorDoubleSidePrice: 12,
-      bindingSpiral: 15,
-      bindingHardcover: 50,
-      paperA3Surcharge: 50,
-      bulkDiscount10: 5,
-      bulkDiscount50: 10,
-      bulkDiscount100: 15,
-      customDiscounts: [],
-      fixedDocuments: [],
-      paperSizePricing: {
-        A3: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-        A5: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-        Legal: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-        Letter: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-        Photo: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-        Custom: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 }
-      }
-    });
-    
-    setDbPricing({
-      bwSingleSidePrice: 2,
-      colorSingleSidePrice: 8,
-      bwDoubleSidePrice: 3,
-      colorDoubleSidePrice: 12
-    });
-  };
+  // reset function removed (unused)
 
   const updateDbPricing = (field: string, value: string) => {
     setDbPricing({ ...dbPricing, [field]: parseFloat(value) || 0 });
@@ -467,7 +438,7 @@ const PricingManager = () => {
       }];
       setPricing({ ...pricing, customDiscounts: updatedDiscounts });
       setNewDiscount({ name: '', discountPercent: 0, isCustomName: false });
-      fetch(`http://localhost:5000/api/newshop/${shopId}/discounts`, {
+      apiFetch(`/api/newshop/${shopId}/discounts`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customDiscounts: updatedDiscounts })
@@ -478,7 +449,7 @@ const PricingManager = () => {
   const removeCustomDiscount = (index: number) => {
     const updatedDiscounts = pricing.customDiscounts.filter((_, i) => i !== index);
     setPricing({ ...pricing, customDiscounts: updatedDiscounts });
-    fetch(`http://localhost:5000/api/newshop/${shopId}/discounts`, {
+    apiFetch(`/api/newshop/${shopId}/discounts`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customDiscounts: updatedDiscounts })
@@ -490,7 +461,7 @@ const PricingManager = () => {
       i === index ? { ...discount, [field]: field === 'discountPercent' ? parseFloat(value) || 0 : value } : discount
     );
     setPricing({ ...pricing, customDiscounts: updatedDiscounts });
-    fetch(`http://localhost:5000/api/newshop/${shopId}/discounts`, {
+    apiFetch(`/api/newshop/${shopId}/discounts`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customDiscounts: updatedDiscounts })
@@ -507,7 +478,7 @@ const PricingManager = () => {
       }];
       setPricing({ ...pricing, fixedDocuments: updatedDocs });
       setNewDocument({ docName: '', price: 0, file: null });
-      fetch(`http://localhost:5000/api/newshop/${shopId}/fixed-documents`, {
+      apiFetch(`/api/newshop/${shopId}/fixed-documents`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fixedDocuments: updatedDocs })
@@ -518,7 +489,7 @@ const PricingManager = () => {
   const removeFixedDocument = (index: number) => {
     const updatedDocs = pricing.fixedDocuments.filter((_, i) => i !== index);
     setPricing({ ...pricing, fixedDocuments: updatedDocs });
-    fetch(`http://localhost:5000/api/newshop/${shopId}/fixed-documents`, {
+    apiFetch(`/api/newshop/${shopId}/fixed-documents`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fixedDocuments: updatedDocs })
@@ -789,7 +760,7 @@ const PricingManager = () => {
                   className="px-4 py-2 bg-lime-500 text-white rounded-lg hover:bg-lime-600 transition"
                   onClick={async () => {
                     try {
-                      await fetch(`http://localhost:5000/api/shops/shop/${shopId}/pricing`, {
+                      await apiFetch(`/api/shops/shop/${shopId}/pricing`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1127,7 +1098,7 @@ const PricingManager = () => {
                   className="px-4 py-2 bg-lime-500 text-white rounded-lg hover:bg-lime-600 transition"
                   onClick={async () => {
                     try {
-                      await fetch(`http://localhost:5000/api/shops/shop/${shopId}/paper-size-pricing`, {
+                      await apiFetch(`/api/shops/shop/${shopId}/paper-size-pricing`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ paperSizePricing: pricing.paperSizePricing })

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Printer, CreditCard as Edit3, Save, Info, Wifi, WifiOff, Monitor, Palette, FileText, Check, X, RefreshCw } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
 import axios from 'axios';
+import { API_BASE } from '../../lib/api';
  
 // Resolve canonical shop id from query/localStorage
 const resolveShopId = (): string => {
@@ -59,7 +60,7 @@ const PrinterSettings = () => {
     const fetchPrinters = async () => {
       try {
         if (!shopId) return;
-        const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
+  const response = await axios.get(`${API_BASE}/api/shops/${shopId}/printers`);
         // Add isEnabled derived from manualStatus (on/off)
         const normalized = (response.data || []).map((p: any) => ({
           ...p,
@@ -90,7 +91,7 @@ const PrinterSettings = () => {
     try {
       const pid = encodeURIComponent(printer.printerid || printer.printerId);
       if (!shopId) return;
-      await axios.patch(`http://localhost:5000/api/shops/${shopId}/printers/${pid}/manualStatus`, { manualStatus: newStatus });
+  await axios.patch(`${API_BASE}/api/shops/${shopId}/printers/${pid}/manualStatus`, { manualStatus: newStatus });
     } catch (err) {
       console.error('Failed to toggle manualStatus', err);
       // Revert on error
@@ -138,7 +139,7 @@ const PrinterSettings = () => {
       const token = editForm.capabilities.type;
       const canonicalType = token === 'bw' ? 'B/W' : (token === 'color' ? 'Color' : token === 'color+bw' ? 'Color+B/W' : '');
       if (!shopId) return;
-      await axios.patch(`http://localhost:5000/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}`, {
+  await axios.patch(`${API_BASE}/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}`, {
         manualOverride: {
           name: editForm.name,
           notes: editForm.notes,
@@ -151,7 +152,7 @@ const PrinterSettings = () => {
       });
       setIsEditing(false);
       // Refresh printers list
-      const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
+  const response = await axios.get(`${API_BASE}/api/shops/${shopId}/printers`);
       setPrinters(response.data);
     } catch (error) {
       console.error('Error updating manual override:', error);
@@ -669,8 +670,8 @@ const PrinterSettings = () => {
                         onClick={async () => {
                           try {
                             if (!shopId) return;
-                            await axios.post(`http://localhost:5000/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}/sync`);
-                            const response = await axios.get(`http://localhost:5000/api/shops/${shopId}/printers`);
+                            await axios.post(`${API_BASE}/api/shops/${shopId}/printers/${selectedPrinter.printerid || selectedPrinter.printerId}/sync`);
+                            const response = await axios.get(`${API_BASE}/api/shops/${shopId}/printers`);
                             setPrinters(response.data);
                           } catch (e) {
                             console.error('Forced sync failed', e);

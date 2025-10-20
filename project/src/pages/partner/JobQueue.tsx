@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { RefreshCw, FileText, User, Phone, Play, Pause } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
+import { apiFetch } from '../../lib/api';
 
 export type QueueJob = {
   finaljobId: string;
@@ -70,7 +71,7 @@ const JobQueue: React.FC = () => {
   const fetchQueue = useCallback(async () => {
     if (!shopId) return;
     try {
-  const resp = await fetch(`/api/jobs/queue/${shopId}`);
+  const resp = await apiFetch(`/api/jobs/queue/${shopId}`);
       if (!resp.ok) throw new Error('Failed to fetch queue');
       const data = await resp.json();
       const list: QueueJob[] = Array.isArray(data.jobs) ? data.jobs : [];
@@ -96,7 +97,7 @@ const JobQueue: React.FC = () => {
   const fetchTotals = useCallback(async () => {
     if (!shopId) return;
     try {
-      const resp = await fetch(`/api/jobs/total/${shopId}?last24=true`);
+  const resp = await apiFetch(`/api/jobs/total/${shopId}?last24=true`);
       if (!resp.ok) throw new Error('Failed to fetch total jobs');
       const data = await resp.json();
       if (typeof data.totalJobs === 'number') setTotal24(data.totalJobs);
@@ -110,7 +111,7 @@ const JobQueue: React.FC = () => {
     if (!shopId) return;
     try {
       const next = !autoPrintMode;
-  const resp = await fetch(`/api/finaljobs/autoprint/${shopId}`, {
+  const resp = await apiFetch(`/api/finaljobs/autoprint/${shopId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ autoPrintMode: next })
@@ -129,7 +130,7 @@ const JobQueue: React.FC = () => {
     try {
       // Optimistically dim + disable this job's Print button
       setTriggering(prev => new Set(prev).add(finaljobId));
-      const resp = await fetch(`/api/finaljobs/${finaljobId}/manual`, {
+      const resp = await apiFetch(`/api/finaljobs/${finaljobId}/manual`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manualTrigger: true })

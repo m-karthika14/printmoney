@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Clock, CheckCircle, Printer, DollarSign, FileText, AlertCircle, ClipboardList } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
+import { apiFetch } from '../../lib/api';
 
 type DashboardSnapshot = {
   shopName: string;
@@ -32,7 +33,7 @@ const Dashboard: React.FC = () => {
 
   const fetchDashboard = async (sid: string) => {
     try {
-      const resp = await fetch(`/api/shops/shop/${encodeURIComponent(sid)}/dashboard`);
+  const resp = await apiFetch(`/api/shops/shop/${encodeURIComponent(sid)}/dashboard`);
       if (!resp.ok) throw new Error('Failed to load dashboard');
       const json = await resp.json();
       setData(json);

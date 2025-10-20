@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, Smartphone } from 'lucide-react';
 import logo from '../../../logo.png';
+import { apiFetch } from '../../lib/api';
 
 const PartnerLogin = () => {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ const PartnerLogin = () => {
     setLoginError('');
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/shops/login', {
+      const res = await apiFetch('/api/shops/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: formData.email, password: formData.password })

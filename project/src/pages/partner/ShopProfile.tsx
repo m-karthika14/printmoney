@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch, apiUrl } from '../../lib/api';
 
 // Type definitions
 type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
@@ -69,7 +70,7 @@ const ShopProfile: React.FC = () => {
   const id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
         console.log('shopId from localStorage:', id);
         if (!id) return;
-        const res = await fetch(`http://localhost:5000/api/shops/${id}`);
+  const res = await apiFetch(`/api/shops/${id}`);
         if (!res.ok) {
           console.log('Fetch failed, status:', res.status);
           return;
@@ -81,7 +82,7 @@ const ShopProfile: React.FC = () => {
         // Try to also fetch QR info
         let qrData: { qr_code_url?: string; link?: string } = {};
         try {
-          const qrRes = await fetch(`http://localhost:5000/api/shops/${id}/qr`);
+          const qrRes = await apiFetch(`/api/shops/${id}/qr`);
           if (qrRes.ok) qrData = await qrRes.json();
         } catch {}
         setShopData({ ...defaultShopData, ...shop, name: shop.name || shop.shopName, workingHours, qr_code_url: (qrData as any).qr_code_url || shop.qr_code_url });
@@ -144,7 +145,7 @@ const ShopProfile: React.FC = () => {
           if (typeof workingHoursToSend[day].open === 'undefined') workingHoursToSend[day].open = '';
           if (typeof workingHoursToSend[day].close === 'undefined') workingHoursToSend[day].close = '';
         });
-        const res = await fetch(`http://localhost:5000/api/shops/${id}/profile`, {
+        const res = await apiFetch(`/api/shops/${id}/profile`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -186,7 +187,7 @@ const ShopProfile: React.FC = () => {
         id = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
       }
       if (!id) return;
-      const res = await fetch(`http://localhost:5000/api/shops/${id}`);
+  const res = await apiFetch(`/api/shops/${id}`);
       if (!res.ok) return;
       const shop: ShopProfileData = await res.json();
       // Save _id to localStorage for future requests
@@ -206,7 +207,7 @@ const ShopProfile: React.FC = () => {
       // Always use _id if available, fallback to shopId
       const id = shopData._id || localStorage.getItem('shopMongoId') || shopData.shopId;
       if (!id) return;
-      const res = await fetch(`http://localhost:5000/api/shops/${id}/profile`, {
+      const res = await apiFetch(`/api/shops/${id}/profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isOpen: newStatus })
@@ -618,7 +619,7 @@ const ShopProfile: React.FC = () => {
               <div className="bg-gray-100 rounded-xl p-4 mb-4 flex items-center justify-center">
                 {shopData.qr_code_url ? (
                   <img
-                    src={`http://localhost:5000${shopData.qr_code_url}`}
+                    src={apiUrl(shopData.qr_code_url || '')}
                     alt="Shop QR"
                     className="w-48 h-48 object-contain"
                   />
@@ -637,7 +638,7 @@ const ShopProfile: React.FC = () => {
               {shopData.qr_code_url ? (
                 <a
                   className="block w-full text-center bg-lime-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-lime-600 transition-colors duration-200"
-                  href={`http://localhost:5000${shopData.qr_code_url}`}
+                  href={apiUrl(shopData.qr_code_url || '')}
                   download={`${shopData.shopId || 'shop'}_QR.png`}
                 >
                   Download QR Code
