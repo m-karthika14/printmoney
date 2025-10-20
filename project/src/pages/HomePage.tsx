@@ -113,7 +113,7 @@ const HomePage = () => {
               </p>
 
               <div className="flex justify-center sm:justify-start pt-4">
-                <Link to="/partner/login">
+                <Link to="/partner-login">
                   <motion.button
                     whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(132, 204, 22, 0.3)" }}
                     whileTap={{ scale: 0.98 }}
@@ -412,7 +412,7 @@ const HomePage = () => {
             </p>
 
             <div className="flex justify-center pt-4">
-              <Link to="/partner/login">
+              <Link to="/partner-login">
                 <motion.button
                   whileHover={{ scale: 1.05, boxShadow: "0 20px 50px rgba(132, 204, 22, 0.4)" }}
                   whileTap={{ scale: 0.98 }}
