@@ -24,10 +24,28 @@ function matchesPrinter(job, printer) {
   // Capabilities may contain multiple entries; accept if any capability satisfies requirements
   const capsArray = Array.isArray(source.capabilities) ? source.capabilities : [];
   for (const caps of capsArray) {
-    const typeOk = needColor ? (String(caps.type).toLowerCase().includes('color')) : true;
+    // Treat color-capable printers as able to print both color and B/W jobs
+    const capType = String(caps.type || '').toLowerCase();
+    const typeOk = (() => {
+      if (needColor) return capType.includes('color');
+      // If job does NOT require color, allow any printer; color printers also satisfy B/W jobs
+      return true;
+    })();
     const duplexOk = needDuplex ? !!caps.duplex : true;
     const sizeOk = requiredSize ? (Array.isArray(caps.paperSizes) && caps.paperSizes.includes(requiredSize)) : true;
     if (typeOk && duplexOk && sizeOk) return true;
+  }
+  return false;
+}
+
+function printerHasColorCapability(printer) {
+  const source = printer.useAgentValues ? printer.agentDetected : printer.manualOverride;
+  if (!source || !Array.isArray(source.capabilities)) return false;
+  for (const caps of source.capabilities) {
+    if (!caps) continue;
+    try {
+      if (String(caps.type).toLowerCase().includes('color')) return true;
+    } catch (e) {}
   }
   return false;
 }
@@ -53,7 +71,17 @@ async function pollJobsAndAssignPrinters(shopIdFilter) {
       continue;
     }
 
-    const candidates = shop.printers.filter(p => matchesPrinter(job, p));
+    let candidates = shop.printers.filter(p => matchesPrinter(job, p));
+    // If the job requires color, prefer printers that advertise color capability.
+    const needColor = jobRequiresColor(job.print_options || {});
+    if (needColor && candidates.length > 1) {
+      const colorCaps = [];
+      const others = [];
+      for (const p of candidates) {
+        if (printerHasColorCapability(p)) colorCaps.push(p); else others.push(p);
+      }
+      candidates = colorCaps.concat(others);
+    }
     if (candidates.length === 0) {
       console.warn(`[JobPoller] No compatible printer for job ${job.job_number} in shop ${job.shop_id}.`);
       continue;

@@ -48,8 +48,17 @@ const ApplyShopPage: React.FC = () => {
   const publicId = data?.shopId || data?.shop_id || null;
   const apiKey = data?.apiKey || data?.apikey || null;
       if (publicId) {
-        localStorage.setItem('shopId', publicId);
-        localStorage.setItem('shop_id', publicId);
+        try {
+          const HEX24 = /^[a-fA-F0-9]{24}$/;
+          if (!HEX24.test(publicId)) {
+            localStorage.setItem('shopId', publicId);
+            localStorage.setItem('shop_id', publicId);
+          } else {
+            // Don't store raw Mongo ObjectId as canonical public id
+            localStorage.setItem('shop_object_id', publicId);
+            console.warn('[ApplyShopPage] backend returned 24-char ObjectId as shop id; saved to shop_object_id instead');
+          }
+        } catch (e) {}
       }
   if (apiKey) localStorage.setItem('apiKey', apiKey);
   localStorage.setItem('registeredShopEmail', form.email);

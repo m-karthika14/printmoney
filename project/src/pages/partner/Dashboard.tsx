@@ -26,8 +26,16 @@ const Dashboard: React.FC = () => {
     const qs = url.searchParams.get('shop_id') || url.searchParams.get('shopId');
     const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId');
     const HEX24 = /^[a-fA-F0-9]{24}$/;
+    if (stored && HEX24.test(stored)) {
+      try { window.localStorage.removeItem('shopId'); } catch {}
+      try { window.localStorage.removeItem('shop_id'); } catch {}
+      try { window.localStorage.removeItem('shop_object_id'); } catch {}
+      console.warn('[Dashboard] removed legacy Mongo ObjectId from localStorage', stored);
+      setShopId('');
+      return;
+    }
     const sid = (qs && !HEX24.test(qs)) ? qs : (stored && !HEX24.test(stored) ? stored : '');
-    if (sid) window.localStorage.setItem('shop_id', sid);
+    if (sid) try { window.localStorage.setItem('shop_id', sid); } catch {}
     setShopId(sid);
   }, []);
 

@@ -5,6 +5,9 @@ const NewShop = require('../models/NewShop');
 const AgentPrinter = mongoose.model('AgentPrinter', new mongoose.Schema({}, { strict: false }), 'printers');
 
 let isSyncRunning = false;
+// Set to true to remove printers from NewShop.printers when agent no longer reports them.
+// WARNING: This will delete printer entries (including manualOverride). Use with caution.
+const REMOVE_MISSING_PRINTERS = true;
 
 function normalizeStatus(status) {
   if (!status) return 'offline';
@@ -82,6 +85,8 @@ async function syncPrinters(shopIdFilter) {
     let inserted = 0, updated = 0, skipped = 0;
 
     const list = Array.isArray(agentDoc.printers) ? agentDoc.printers : [];
+    // Track which printer ids we saw from the agent this run
+    const agentSeenIds = new Set();
     for (const ap of list) {
       const pid = (ap.printer_id || '').trim();
       if (!pid) {
@@ -89,6 +94,7 @@ async function syncPrinters(shopIdFilter) {
         skipped++;
         continue;
       }
+      agentSeenIds.add(pid);
 
       const incoming = {
         printerid: pid,
@@ -145,17 +151,35 @@ async function syncPrinters(shopIdFilter) {
       }
     }
 
-    // Ensure uniqueness by printerid (keep last occurrence)
-    const unique = new Map();
-    for (const p of shop.printers) {
-      const key = p.printerid || p.printerId || undefined;
-      if (!key) {
-        // drop legacy entries without identifiable printer id
-        continue;
+    if (REMOVE_MISSING_PRINTERS) {
+      // Remove printers not reported by the agent this run
+      shop.printers = (shop.printers || []).filter(p => {
+        const key = p.printerid || p.printerId;
+        if (!key) return false; // drop legacy entries without identifiable id
+        return agentSeenIds.has(key);
+      });
+    } else {
+      // Mark missing printers as offline (conservative)
+      for (const p of (shop.printers || [])) {
+        const key = p.printerid || p.printerId;
+        if (!key) continue;
+        if (!agentSeenIds.has(key)) {
+          p.status = 'offline';
+          if (!p.agentDetected) p.agentDetected = {};
+          p.agentDetected.status = 'offline';
+        }
       }
-      unique.set(key, p);
+      // Ensure uniqueness by printerid (keep last occurrence)
+      const unique = new Map();
+      for (const p of shop.printers) {
+        const key = p.printerid || p.printerId || undefined;
+        if (!key) {
+          continue;
+        }
+        unique.set(key, p);
+      }
+      shop.printers = Array.from(unique.values());
     }
-    shop.printers = Array.from(unique.values());
 
   await shop.save();
   // Socket removed: frontend uses polling

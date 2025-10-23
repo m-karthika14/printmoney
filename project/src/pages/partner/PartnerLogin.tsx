@@ -36,18 +36,34 @@ const PartnerLogin = () => {
       }
       // Login successful, redirect to dashboard
       localStorage.setItem('registeredShopEmail', data.shop.email);
-          // Store canonical shop_id for all shop-scoped APIs
-          if (data.shop.shop_id || data.shop.shopId) {
-            const sid = data.shop.shop_id || data.shop.shopId;
-            localStorage.setItem('shop_id', sid);
-            // Clean legacy key to enforce canonical usage
-            try { localStorage.removeItem('shopId'); } catch {}
-          }
+      // Store canonical shop_id for all shop-scoped APIs if valid (not a 24-char hex)
+      try {
+        const HEX24 = /^[a-fA-F0-9]{24}$/;
+        const sid = data.shop.shop_id || data.shop.shopId || '';
+        if (sid && !HEX24.test(sid)) {
+          localStorage.setItem('shop_id', sid);
+          try { localStorage.removeItem('shopId'); } catch {}
+        } else if (sid && HEX24.test(sid)) {
+          // avoid persisting a raw Mongo ObjectId as the canonical id
+          console.warn('[PartnerLogin] received Mongo ObjectId as shop id, not persisting as canonical shop_id', sid);
+          // still save as shop_object_id for backwards compatibility
+          try { localStorage.setItem('shop_object_id', sid); } catch {}
+        }
+      } catch (e) {
+        // ignore localStorage errors
+      }
       // Also store Mongo _id separately for screens that still use it
-          if (data.shop._id) {
-            localStorage.setItem('shop_object_id', data.shop._id);
-          }
-      console.log('Set shopId (canonical):', data.shop.shopId, 'shopObjectId:', data.shop._id);
+      if (data.shop._id) {
+        localStorage.setItem('shop_object_id', data.shop._id);
+      }
+      // Log the canonical keys we've stored for clarity
+      try {
+        const storedSid = localStorage.getItem('shop_id') || '';
+        const storedObj = localStorage.getItem('shop_object_id') || '';
+        console.log('Set shop_id (canonical):', storedSid, 'shop_object_id:', storedObj);
+      } catch (e) {
+        console.log('Set shop ids (could not read localStorage)');
+      }
       navigate('/dashboard');
     } catch (err) {
       setLoginError('Login failed. Please try again.');

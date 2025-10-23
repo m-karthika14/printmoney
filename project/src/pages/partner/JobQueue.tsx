@@ -51,19 +51,22 @@ const JobQueue: React.FC = () => {
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    // Only accept canonical shopId (e.g., "T47439k"). Ignore legacy shop_id and ObjectId values.
-  const qsShop = url.searchParams.get('shop_id') || url.searchParams.get('shopId') || undefined;
-  const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId') || undefined;
+    const qsShop = url.searchParams.get('shop_id') || url.searchParams.get('shopId') || undefined;
+    const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId') || undefined;
     const HEX24 = /^[a-fA-F0-9]{24}$/;
-    let sid = (qsShop && !HEX24.test(qsShop)) ? qsShop : (stored && !HEX24.test(stored) ? stored : '');
-    // Persist only a valid canonical shopId
-    if (qsShop && !HEX24.test(qsShop)) {
-      window.localStorage.setItem('shop_id', qsShop);
-    }
-    // Clean up legacy/invalid value
+    // If a 24-char hex was stored, remove it and don't use it
     if (stored && HEX24.test(stored)) {
       try { window.localStorage.removeItem('shopId'); } catch {}
       try { window.localStorage.removeItem('shop_id'); } catch {}
+      try { window.localStorage.removeItem('shop_object_id'); } catch {}
+      console.warn('[JobQueue] removed legacy Mongo ObjectId from localStorage', stored);
+      setShopId('');
+      return;
+    }
+    const sid = (qsShop && !HEX24.test(qsShop)) ? qsShop : (stored && !HEX24.test(stored) ? stored : '');
+    // Persist only a valid canonical shopId
+    if (qsShop && !HEX24.test(qsShop)) {
+      try { window.localStorage.setItem('shop_id', qsShop); } catch {}
     }
     setShopId(sid);
   }, []);

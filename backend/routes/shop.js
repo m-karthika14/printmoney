@@ -5,6 +5,15 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { scheduledSync } = require('../utils/printerSync');
 const FinalJob = require('../models/FinalJob');
+// Helper: resolve shop by shop_id OR _id (shared helper used across routes)
+async function resolveShopByAny(idOrCode) {
+	if (!idOrCode) return null;
+	const HEX24 = /^[a-fA-F0-9]{24}$/;
+	if (HEX24.test(idOrCode)) {
+		try { const byId = await NewShop.findById(idOrCode); if (byId) return byId; } catch (e) {}
+	}
+	return await NewShop.findOne({ $or: [{ shop_id: idOrCode }, { shopId: idOrCode }] });
+}
 // Legacy model not used after embedding into NewShop.dailystats map
 // GET shop by canonical shop_id (new) and keep legacy (shopId) for compatibility
 router.get('/by-shop/:shop_id', async (req, res) => {
@@ -17,74 +26,9 @@ router.get('/by-shop/:shop_id', async (req, res) => {
 	} catch (err) {
 		res.status(500).json({ message: err.message });
 	}
+
 });
 
-router.get('/by-shopId/:shopId', async (req, res) => {
-	try {
-		const shop = await NewShop.findOne({ shop_id: req.params.shopId });
-		if (!shop) return res.status(404).json({ message: 'Shop not found' });
-		const obj = shop.toObject();
-		delete obj.password;
-		res.json(obj);
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
-});
-
-// Helper: resolve by id (ObjectId) or shop_id/shopId string
-async function resolveShopByAny(idOrCode) {
-	if (!idOrCode) return null;
-	// Only resolve by public shop identifier (shop_id or virtual shopId).
-	// Do NOT accept raw Mongo ObjectId here for public endpoints — enforce shopId-only usage.
-	const byCode = await NewShop.findOne({ shop_id: idOrCode });
-	return byCode || null;
-}
-
-// GET paperSizePricing for a shop (accepts Mongo _id or shop_id)
-router.get('/shop/:id/paper-size-pricing', async (req, res) => {
-	try {
-		const shop = await resolveShopByAny(req.params.id);
-		if (!shop) {
-			return res.status(404).json({ message: 'Shop not found' });
-		}
-		// Ensure A4 exists in response for backward compatibility: some legacy shops may not have A4 field
-		const defaults = {
-			A4: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-			A3: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-			A5: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-			Legal: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-			Letter: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-			Photo: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 },
-			Custom: { bwSingle: 0, colorSingle: 0, bwDouble: 0, colorDouble: 0 }
-		};
-		const psp = (shop.pricing && shop.pricing.paperSizePricing) ? shop.pricing.paperSizePricing : {};
-		// If A4 is missing, try to populate from legacy top-level pricing fields (pricing.bwSingle etc.)
-		const legacy = shop.pricing || {};
-		const a4FromLegacy = {
-			bwSingle: typeof legacy.bwSingle !== 'undefined' ? Number(legacy.bwSingle) || 0 : undefined,
-			colorSingle: typeof legacy.colorSingle !== 'undefined' ? Number(legacy.colorSingle) || 0 : undefined,
-			bwDouble: typeof legacy.bwDouble !== 'undefined' ? Number(legacy.bwDouble) || 0 : undefined,
-			colorDouble: typeof legacy.colorDouble !== 'undefined' ? Number(legacy.colorDouble) || 0 : undefined
-		};
-
-		// Build merged result preferring psp values, then legacy values, then defaults
-		const merged = {};
-		for (const sizeKey of Object.keys(defaults)) {
-			const stored = psp[sizeKey] || {};
-			merged[sizeKey] = {
-				bwSingle: (typeof stored.bwSingle !== 'undefined' && stored.bwSingle !== null) ? Number(stored.bwSingle) : (sizeKey === 'A4' && typeof a4FromLegacy.bwSingle !== 'undefined' ? a4FromLegacy.bwSingle : defaults[sizeKey].bwSingle),
-				colorSingle: (typeof stored.colorSingle !== 'undefined' && stored.colorSingle !== null) ? Number(stored.colorSingle) : (sizeKey === 'A4' && typeof a4FromLegacy.colorSingle !== 'undefined' ? a4FromLegacy.colorSingle : defaults[sizeKey].colorSingle),
-				bwDouble: (typeof stored.bwDouble !== 'undefined' && stored.bwDouble !== null) ? Number(stored.bwDouble) : (sizeKey === 'A4' && typeof a4FromLegacy.bwDouble !== 'undefined' ? a4FromLegacy.bwDouble : defaults[sizeKey].bwDouble),
-				colorDouble: (typeof stored.colorDouble !== 'undefined' && stored.colorDouble !== null) ? Number(stored.colorDouble) : (sizeKey === 'A4' && typeof a4FromLegacy.colorDouble !== 'undefined' ? a4FromLegacy.colorDouble : defaults[sizeKey].colorDouble)
-			};
-		}
-
-		res.status(200).json({ paperSizePricing: merged });
-	} catch (error) {
-		console.error('Error fetching paperSizePricing:', error);
-		res.status(500).json({ message: 'Server error while fetching paperSizePricing' });
-	}
-});
 
 // PATCH update paperSizePricing for a shop
 router.patch('/shop/:id/paper-size-pricing', async (req, res) => {
@@ -585,46 +529,101 @@ router.patch('/:id/payment', async (req, res) => {
 	}
 });
 
-// PATCH update only printers (manual override + useAgentValues)
+// PATCH update only printers (manual override + useAgentValues) [back-compat endpoint]
+// Accepts req.params.id as Mongo _id or public shop_id. Matches printer by printerid or printerId.
+// Performs a partial merge into printers[idx].manualOverride and supports repeated edits safely.
 router.patch('/:id/printer/:printerId', async (req, res) => {
 	try {
-		const { manualOverride, useAgentValues } = req.body;
-		const shop = await NewShop.findOneAndUpdate(
-			{ _id: req.params.id, 'printers.printerId': req.params.printerId },
-			{
-				$set: {
-					'printers.$.manualOverride': manualOverride,
-					'printers.$.useAgentValues': useAgentValues
-				}
-			},
-			{ new: true, runValidators: true }
-		);
-		if (!shop) {
-			return res.status(404).json({ message: 'Shop or printer not found' });
+		const { manualOverride, useAgentValues } = req.body || {};
+		// Resolve shop by any identifier for robustness
+		const shopRaw = await resolveShopByAny(req.params.id);
+		if (!shopRaw) return res.status(404).json({ message: 'Shop not found' });
+
+		// Locate printer index by either legacy printerId or canonical printerid
+		const target = req.params.printerId;
+		const printers = shopRaw.printers || [];
+		const idx = printers.findIndex(p => (p.printerid || p.printerId) === target);
+		if (idx === -1) return res.status(404).json({ message: 'Printer not found' });
+
+		const current = printers[idx] || {};
+		const baseManual = (current.manualOverride && current.manualOverride.toObject ? current.manualOverride.toObject() : current.manualOverride) || {};
+		const incoming = manualOverride || {};
+
+		// Merge scalar override fields
+		const merged = Object.assign({}, baseManual);
+		if (Object.prototype.hasOwnProperty.call(incoming, 'name')) merged.name = incoming.name;
+		if (Object.prototype.hasOwnProperty.call(incoming, 'notes')) merged.notes = incoming.notes;
+
+		// Merge capabilities into first element; normalize type to "Color" | "B/W"
+		const existingCap = (baseManual.capabilities && Array.isArray(baseManual.capabilities) && baseManual.capabilities[0]) || {};
+		const incCap = (incoming.capabilities && (Array.isArray(incoming.capabilities) ? incoming.capabilities[0] : incoming.capabilities)) || {};
+		const capMerged = Object.assign({}, existingCap, incCap);
+		const normType = (val) => (/color/i.test(String(val || '')) ? 'Color' : 'B/W');
+		if (typeof capMerged.type !== 'undefined') capMerged.type = normType(capMerged.type);
+		if (Object.keys(capMerged).length > 0) merged.capabilities = [capMerged];
+
+		// Build atomic $set update
+		const setObj = {};
+		setObj[`printers.${idx}.manualOverride`] = merged;
+		if (typeof useAgentValues !== 'undefined') {
+			setObj[`printers.${idx}.useAgentValues`] = !!useAgentValues;
 		}
-		// Return updated printer object (including .activeConfig virtual)
-		const printer = shop.printers.find(p => p.printerId === req.params.printerId);
-		res.json(printer);
+		// Ensure canonical printerid is set for consistency if only legacy printerId exists
+		if (!current.printerid && current.printerId) {
+			setObj[`printers.${idx}.printerid`] = current.printerId;
+		}
+
+		const updated = await NewShop.findByIdAndUpdate(
+			shopRaw._id,
+			{ $set: setObj },
+			{ new: true, runValidators: true }
+		).lean();
+		const out = (updated.printers || [])[idx];
+		return res.json({ success: true, printer: out });
 	} catch (error) {
-		res.status(400).json({ message: error.message });
+		return res.status(400).json({ message: error.message });
 	}
 });
 
 // --- Printers API (by shopId string) ---
 
-// GET /api/shops/:id/printers  (accepts Mongo _id or shop_id/shopId)
+// GET /api/shops/:id/printers  (accepts Mongo _id or public shop_id); returns printers with merged finalValues
 router.get('/:id/printers', async (req, res) => {
 	try {
 		const shop = await resolveShopByAny(req.params.id);
-		if (!shop) return res.status(404).json({ message: 'Shop not found' });
-		const printers = (shop.printers || []).map(p => ({
-			...p,
-			printerid: p.printerid || p.printerId || null,
-			manualStatus: p.manualStatus || 'on'
-		}));
-		res.json(printers);
+		if (!shop) return res.status(404).json({ error: 'Shop not found' });
+
+		const printers = (shop.printers || []).map((p) => {
+			const toObj = p.toObject ? p.toObject() : p;
+			// Normalize capability containers (support either array[0] or single object)
+			const agentCap = (toObj.agentDetected?.capabilities?.[0]) || toObj.agentDetected?.capabilities || {};
+			const manualCap = (toObj.manualOverride?.capabilities?.[0]) || toObj.manualOverride?.capabilities || {};
+
+			// Only allow two final types: "Color" | "B/W"; treat anything containing 'color' as Color
+			const normType = (val) => (/color/i.test(String(val || '')) ? 'Color' : 'B/W');
+			const finalType = manualCap.type ? normType(manualCap.type) : agentCap.type ? normType(agentCap.type) : 'B/W';
+			const finalDuplex = (typeof manualCap.duplex !== 'undefined') ? !!manualCap.duplex : !!agentCap.duplex;
+			const finalPaperSizes = (Array.isArray(manualCap.paperSizes) && manualCap.paperSizes.length)
+				? manualCap.paperSizes
+				: (Array.isArray(agentCap.paperSizes) ? agentCap.paperSizes : []);
+
+			return {
+				...toObj,
+				printerid: toObj.printerid || toObj.printerId || null,
+				finalValues: {
+					name: toObj.manualOverride?.name || toObj.agentDetected?.name || (toObj.printerid || toObj.printerId),
+					type: finalType,
+					duplex: finalDuplex,
+					paperSizes: finalPaperSizes,
+					manualStatus: toObj.manualStatus,
+					status: toObj.status
+				}
+			};
+		});
+
+		res.json({ printers });
 	} catch (err) {
-		res.status(500).json({ message: err.message });
+		res.status(500).json({ error: err.message });
 	}
 });
 
@@ -633,26 +632,33 @@ router.patch('/:shopId/printers/:printerId', async (req, res) => {
 	try {
 		const { manualOverride } = req.body || {};
 		const shop = await NewShop.findOne({ shop_id: req.params.shopId });
-		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		if (!shop) return res.status(404).json({ error: 'Shop not found' });
 		const idx = (shop.printers || []).findIndex(p => (p.printerid || p.printerId) === req.params.printerId);
-		if (idx === -1) return res.status(404).json({ message: 'Printer not found' });
+		if (idx === -1) return res.status(404).json({ error: 'Printer not found' });
 
-		const existing = shop.printers[idx];
+		const printer = shop.printers[idx] || {};
 		const incoming = manualOverride || {};
-		const merged = {
-			name: typeof incoming.name !== 'undefined' ? incoming.name : existing.manualOverride?.name,
-			notes: typeof incoming.notes !== 'undefined' ? incoming.notes : existing.manualOverride?.notes,
-			capabilities: Array.isArray(incoming.capabilities) && incoming.capabilities.length > 0
-				? incoming.capabilities
-				: (existing.manualOverride?.capabilities || existing.agentDetected?.capabilities || [])
-		};
-		existing.manualOverride = merged;
-		// ensure printerid field is set for legacy docs
-		if (!existing.printerid && existing.printerId) existing.printerid = existing.printerId;
-		await shop.save();
-		res.json(existing);
+		const baseManual = (printer.manualOverride && printer.manualOverride.toObject ? printer.manualOverride.toObject() : printer.manualOverride) || {};
+		const merged = Object.assign({}, baseManual, incoming);
+
+		// Capabilities: partial merge into first element; normalize type to "Color" | "B/W"
+		const existingCap = (baseManual.capabilities && Array.isArray(baseManual.capabilities) && baseManual.capabilities[0]) || {};
+		const incCap = (incoming.capabilities && (Array.isArray(incoming.capabilities) ? incoming.capabilities[0] : incoming.capabilities)) || {};
+		const normType = (val) => (/color/i.test(String(val || '')) ? 'Color' : 'B/W');
+		const capMerged = Object.assign({}, existingCap, incCap);
+		if (typeof capMerged.type !== 'undefined') capMerged.type = normType(capMerged.type);
+		if (Object.keys(capMerged).length > 0) merged.capabilities = [capMerged];
+
+		const setObj = {};
+		setObj[`printers.${idx}.manualOverride`] = merged;
+		// keep printerid populated if only printerId exists
+		if (!(printer.printerid) && printer.printerId) setObj[`printers.${idx}.printerid`] = printer.printerId;
+
+		const updated = await NewShop.findByIdAndUpdate(shop._id, { $set: setObj }, { new: true }).lean();
+		const outPrinter = (updated.printers || [])[idx];
+		res.json({ success: true, printer: outPrinter });
 	} catch (err) {
-		res.status(500).json({ message: err.message });
+		res.status(500).json({ error: err.message });
 	}
 });
 
@@ -670,71 +676,59 @@ router.post('/:shopId/printers/:printerId/sync', async (req, res) => {
 	}
 });
 
+// GET /api/shops/:shopId/paper-sizes -> union of sizes from agentDetected across printers (and manualOverride when present)
+router.get('/:shopId/paper-sizes', async (req, res) => {
+	try {
+		const shop = await NewShop.findOne({ shop_id: req.params.shopId });
+		if (!shop) return res.status(404).json({ error: 'Shop not found' });
+		const sizes = new Set();
+		for (const p of (shop.printers || [])) {
+			const a = (p.agentDetected?.capabilities?.[0]) || p.agentDetected?.capabilities || {};
+			const m = (p.manualOverride?.capabilities?.[0]) || p.manualOverride?.capabilities || {};
+			(Array.isArray(a.paperSizes) ? a.paperSizes : []).forEach(s => sizes.add(s));
+			(Array.isArray(m.paperSizes) ? m.paperSizes : []).forEach(s => sizes.add(s));
+		}
+		res.json({ sizes: Array.from(sizes) });
+	} catch (err) {
+		res.status(500).json({ error: err.message });
+	}
+});
 // PATCH /api/shops/:shopId/printers/:printerId/manualStatus  (shopkeeper toggles printer on/off for allocation)
 router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 	try {
-	const { manualStatus } = req.body || {};
+		const { manualStatus } = req.body || {};
 		if (!['on','off','pending_off'].includes(manualStatus)) {
 			return res.status(400).json({ message: 'Invalid manualStatus. Use on/off/pending_off' });
 		}
-		const { shopId, printerId } = req.params;
-		// Resolve shop by canonical shop_id/shopId
-	const shop = await NewShop.findOne({ shop_id: shopId });
-		if (!shop) {
-			return res.status(404).json({ message: 'Shop not found', code: 'SHOP_NOT_FOUND', shopId });
-		}
-		const targetId = printerId;
+		const shop = await resolveShopByAny(req.params.shopId);
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
 		const printers = shop.printers || [];
-		// Flexible matching (exact, decoded, with space/underscore swaps)
-		const decoded = decodeURIComponent(targetId);
-		const variants = new Set([
-			targetId,
-			decoded,
-			decoded.replace(/_/g, ' '),
-			decoded.replace(/ /g, '_')
-		]);
-
-		const sanitize = (v) => (v || '')
-			.toString()
-			.trim()
-			.toLowerCase()
-			.replace(/\s+/g, '_')
-			.replace(/-+/g, '_');
+		// flexible matching: find by printerid/printerId or agentDetected.name
+		const target = req.params.printerId;
+		const decoded = decodeURIComponent(target);
+		const sanitize = (v) => (v || '').toString().trim().toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_');
 		const targetSan = sanitize(decoded);
-
 		let printer = null;
 		for (const p of printers) {
 			const idVal = p.printerid || p.printerId;
 			if (!idVal) continue;
 			const idSan = sanitize(idVal);
-			if (variants.has(idVal) || variants.has(idSan) || idSan === targetSan) { printer = p; break; }
-			// allow startsWith match if still not found (sometimes agent adds port suffix) only if unique
-			if (!printer && idSan.startsWith(targetSan)) {
-				printer = p;
-			}
+			if (idVal === target || idVal === decoded || idSan === targetSan) { printer = p; break; }
 		}
 		if (!printer) {
-			// second pass: try matching by agentDetected.name
 			for (const p of printers) {
 				const alt = p.agentDetected?.name;
 				if (alt && sanitize(alt) === targetSan) { printer = p; break; }
 			}
 		}
-		if (!printer) {
-			return res.status(404).json({
-				message: 'Printer not found',
-				code: 'PRINTER_NOT_FOUND',
-				requested: targetId,
-				requestedNormalized: targetSan,
-				available: printers.map(p => ({ raw: p.printerid || p.printerId, norm: sanitize(p.printerid || p.printerId) }))
-			});
-		}
-		// If turning off and an active job exists, mark pending_off
+		if (!printer) return res.status(404).json({ message: 'Printer not found' });
+
 		let nextStatus = manualStatus;
+		// If turning off and an active job exists, mark pending_off
 		if (manualStatus === 'off') {
 			const pid = printer.printerid || printer.printerId;
 			const pname = printer.agentDetected?.name;
-			const canonicalShopId = shop.shop_id || shopId;
+			const canonicalShopId = shop.shop_id || req.params.shopId;
 			const activeJob = await FinalJob.findOne({
 				shop_id: canonicalShopId,
 				$or: [
@@ -746,11 +740,16 @@ router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 			}).lean();
 			if (activeJob) nextStatus = 'pending_off';
 		}
-		printer.manualStatus = nextStatus;
-		await shop.save();
-		res.json({ success: true, printer });
+
+		// Persist resulting status
+		const idx = printers.findIndex(p => p === printer);
+		const setObj = {};
+		setObj[`printers.${idx}.manualStatus`] = nextStatus;
+		const updatedShop = await NewShop.findByIdAndUpdate(shop._id, { $set: setObj }, { new: true }).lean();
+		const outPrinter = (updatedShop.printers || [])[idx];
+		return res.json({ success: true, printer: outPrinter });
 	} catch (err) {
-		res.status(500).json({ message: err.message });
+		return res.status(500).json({ message: err.message });
 	}
 });
 
@@ -1148,4 +1147,3 @@ router.use((err, req, res, next) => {
 
 module.exports = router;
 /** DASHBOARD ROUTES BELOW **/
-

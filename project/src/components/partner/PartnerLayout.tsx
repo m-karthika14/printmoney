@@ -24,16 +24,54 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const fetchShop = async () => {
-  const canonical = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
-      if (!canonical) return;
+      // Sanitize any legacy values: if a 24-char hex Mongo ObjectId was stored in localStorage,
+      // remove it so pages don't mistakenly use it as the canonical public shop id.
       try {
-  const res = await apiFetch(`/api/shops/by-shop/${canonical}`);
-        if (res.ok) {
-          const shop = await res.json();
-          setShopData({ name: shop.name || shop.shopName || '', shopId: shop.shop_id || shop.shopId || '' });
+        const stored = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
+        const HEX24 = /^[a-fA-F0-9]{24}$/;
+        if (stored && HEX24.test(stored)) {
+          // remove legacy entries and related keys
+          try { localStorage.removeItem('shop_id'); } catch {}
+          try { localStorage.removeItem('shopId'); } catch {}
+          try { localStorage.removeItem('shop_object_id'); } catch {}
+          console.warn('[PartnerLayout] removed legacy Mongo ObjectId from localStorage.shop_id', stored);
+          return; // don't attempt to fetch using an invalid id
         }
-      } catch (err) {
-        // handle error
+
+        const canonical = localStorage.getItem('shop_id') || localStorage.getItem('shopId');
+        if (!canonical) return;
+        try {
+          const res = await apiFetch(`/api/shops/by-shop/${canonical}`);
+          if (res.ok) {
+            const shop = await res.json();
+            setShopData({ name: shop.name || shop.shopName || '', shopId: shop.shop_id || shop.shopId || '' });
+          } else {
+            // Fallback: some clients still store Mongo _id in localStorage.shop_object_id.
+            // If lookup by public code failed, try resolving by the stored Mongo _id and persist canonical shop_id.
+            const storedObj = localStorage.getItem('shop_object_id');
+            if (storedObj && HEX24.test(storedObj)) {
+              try {
+                const r2 = await apiFetch(`/api/shops/${storedObj}`);
+                if (r2.ok) {
+                  const shop2 = await r2.json();
+                  const cid = shop2.shop_id || shop2.shopId || '';
+                  if (cid && !HEX24.test(cid)) {
+                    try { localStorage.setItem('shop_id', cid); } catch {}
+                    try { localStorage.removeItem('shopId'); } catch {}
+                    setShopData({ name: shop2.shopName || shop2.name || '', shopId: cid });
+                    console.log('[PartnerLayout] resolved canonical shop_id from _id and persisted:', cid);
+                  }
+                }
+              } catch (e) {
+                // ignore fallback errors
+              }
+            }
+          }
+        } catch (err) {
+          // handle error
+        }
+      } catch (e) {
+        // defensive: ignore localStorage access errors
       }
     };
     fetchShop();

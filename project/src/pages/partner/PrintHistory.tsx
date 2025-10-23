@@ -40,13 +40,17 @@ const PrintHistory: React.FC = () => {
     const qsShop = url.searchParams.get('shop_id') || url.searchParams.get('shopId') || undefined;
     const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId') || undefined;
     const HEX24 = /^[a-fA-F0-9]{24}$/;
-    const sid = (qsShop && !HEX24.test(qsShop)) ? qsShop : (stored && !HEX24.test(stored) ? stored : '');
-    if (qsShop && !HEX24.test(qsShop)) {
-      window.localStorage.setItem('shop_id', qsShop);
-    }
     if (stored && HEX24.test(stored)) {
       try { window.localStorage.removeItem('shopId'); } catch {}
       try { window.localStorage.removeItem('shop_id'); } catch {}
+      try { window.localStorage.removeItem('shop_object_id'); } catch {}
+      console.warn('[PrintHistory] removed legacy Mongo ObjectId from localStorage', stored);
+      setShopId('');
+      return;
+    }
+    const sid = (qsShop && !HEX24.test(qsShop)) ? qsShop : (stored && !HEX24.test(stored) ? stored : '');
+    if (qsShop && !HEX24.test(qsShop)) {
+      try { window.localStorage.setItem('shop_id', qsShop); } catch {}
     }
     setShopId(sid || '');
   }, []);
@@ -122,8 +126,8 @@ const PrintHistory: React.FC = () => {
       start = new Date(now.getTime() - 1*60*60*1000);
     }
 
-    const term = searchTerm.trim().toLowerCase();
-    return completedJobs.filter(j => {
+  const term = searchTerm.trim().toLowerCase();
+  return completedJobs.filter(j => {
       // time filter using completed_at -> updatedAt -> createdAt
       const when = pickWhen(j);
       if (start && when) {
@@ -136,9 +140,9 @@ const PrintHistory: React.FC = () => {
       if (filterType === 'bw' && pt !== 'bw' && pt !== 'black_and_white' && pt !== 'blackwhite') return false;
       // search on file name or customer
       if (term) {
-        const fname = basename(j.current_file) || basename(j.document_urls?.[0]) || '';
-        const customer = (j.customer || '').toLowerCase();
-        const match = fname.toLowerCase().includes(term) || customer.includes(term) || (j.job_number || '').toLowerCase().includes(term);
+        const fname = (basename(j.current_file) || basename(j.document_urls?.[0]) || '').toLowerCase();
+        const customer = (displayCustomer(j.customer) || '').toLowerCase();
+        const match = fname.includes(term) || customer.includes(term) || (j.job_number || '').toLowerCase().includes(term);
         if (!match) return false;
       }
       return true;
@@ -153,6 +157,20 @@ const PrintHistory: React.FC = () => {
   // Total Revenue card now shows grand total across all shops from backend
 
   const allTimeCompleted = useMemo(() => dailystats.reduce((sum, d) => sum + (typeof d.totalJobsCompleted === 'number' ? d.totalJobsCompleted : 0), 0), [dailystats]);
+  // Helpers: safe customer renderer (avoid rendering raw objects directly)
+  const displayCustomer = (c?: any): string => {
+    if (!c) return '\u2014';
+    try {
+      if (typeof c === 'string') return c;
+      if (c.name && typeof c.name === 'string') return c.name;
+      if (c.email && typeof c.email === 'string') return c.email;
+      if (c.phone && typeof c.phone === 'string') return c.phone;
+      if (c._id && (typeof c._id === 'string' || typeof c._id === 'number')) return String(c._id);
+      return JSON.stringify(c);
+    } catch (e) {
+      return '\u2014';
+    }
+  };
 
   return (
     <PartnerLayout>
@@ -263,6 +281,11 @@ const PrintHistory: React.FC = () => {
               const copies = job.print_options?.copies;
               const ptype = (job.print_options?.printType || '').toString().toLowerCase();
               const tagCls = ptype === 'color' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800';
+              const customerDisplay = (() => {
+                const v = displayCustomer(job.customer);
+                return v === '\u2014' ? 'guest' : v;
+              })();
+
               return (
                 <div key={job.finaljobId} className="p-6 hover:bg-gray-50 transition-colors duration-200">
                   <div className="flex items-start justify-between gap-4">
@@ -274,7 +297,7 @@ const PrintHistory: React.FC = () => {
                         <div className="flex items-center justify-between mb-1">
                           <h3 className="font-semibold text-gray-900 truncate">{job.job_number || '—'}</h3>
                         </div>
-                        <p className="text-gray-600 mb-1 truncate">{job.customer || 'guest'}</p>
+                        <p className="text-gray-600 mb-1 truncate">{customerDisplay}</p>
                         <p className="text-sm text-gray-500 mb-2">{formatDateTime(pickWhen(job))}</p>
                         <div className="flex items-center gap-3 text-sm text-gray-600">
                           {typeof copies === 'number' && <span>{copies} copies</span>}
