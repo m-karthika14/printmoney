@@ -1140,6 +1140,34 @@ router.post('/login', async (req, res) => {
 	}
 });
 
+// GET current open/close status for a shop
+router.get('/status/:shopId', async (req, res) => {
+	try {
+		const shop = await resolveShopByAny(req.params.shopId);
+		if (!shop) return res.status(404).json({ error: 'Shop not found' });
+		return res.json({ isOpen: !!shop.isOpen });
+	} catch (err) {
+		console.error('[SHOP STATUS] Error:', err);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+// PATCH toggle open/close status for a shop
+router.patch('/toggle-status/:shopId', async (req, res) => {
+	try {
+		const { isOpen } = req.body || {};
+		if (typeof isOpen !== 'boolean') return res.status(400).json({ error: 'isOpen boolean is required' });
+		// Resolve shop by code or id
+		const shop = await resolveShopByAny(req.params.shopId);
+		if (!shop) return res.status(404).json({ error: 'Shop not found' });
+		const updated = await NewShop.findByIdAndUpdate(shop._id, { $set: { isOpen } }, { new: true }).lean();
+		return res.json({ success: true, isOpen: !!(updated && updated.isOpen) });
+	} catch (err) {
+		console.error('[TOGGLE STATUS] Error:', err);
+		return res.status(500).json({ error: 'Failed to update shop status' });
+	}
+});
+
 // Catch-all error handler for this router
 router.use((err, req, res, next) => {
 	res.status(500).json({ message: err.message || 'Internal server error' });

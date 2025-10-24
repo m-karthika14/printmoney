@@ -15,12 +15,83 @@ import {
   X,
   LogOut,
   Bell
+  ,
+  Power
 } from 'lucide-react';
 
 const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const [shopData, setShopData] = useState({ name: '', shopId: '' });
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  // dynamic toast API if available; fallback to alert
+  const [toastApi, setToastApi] = useState<any>(null);
+
+  // Fetch current open/close status for the shop
+  useEffect(() => {
+    const fetchOpenStatus = async () => {
+      try {
+        const canonical = shopData.shopId || localStorage.getItem('shop_id') || localStorage.getItem('shopId');
+        if (!canonical) return;
+        const res = await apiFetch(`/api/shops/status/${canonical}`);
+        if (res.ok) {
+          const data = await res.json();
+          setIsOpen(!!data.isOpen);
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    fetchOpenStatus();
+  }, [shopData.shopId]);
+
+  // Try to dynamically load react-hot-toast; if unavailable, we'll fallback to alert
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const mod = await import('react-hot-toast');
+        if (mounted) setToastApi(mod);
+      } catch (e) {
+        // module not available, continue silently and fall back to alert
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const handleToggleShopStatus = async () => {
+    try {
+      const canonical = shopData.shopId || localStorage.getItem('shop_id') || localStorage.getItem('shopId');
+      if (!canonical) return;
+      const newStatus = !isOpen;
+      const res = await apiFetch(`/api/shops/toggle-status/${canonical}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isOpen: newStatus })
+      });
+      if (res.ok) {
+        setIsOpen(newStatus);
+        if (toastApi && toastApi.toast && typeof toastApi.toast.success === 'function') {
+          toastApi.toast.success(newStatus ? 'Shop opened successfully' : 'Shop closed successfully');
+        } else {
+          alert(newStatus ? 'Shop opened successfully' : 'Shop closed successfully');
+        }
+      } else {
+        if (toastApi && toastApi.toast && typeof toastApi.toast.error === 'function') {
+          toastApi.toast.error('Failed to update shop status');
+        } else {
+          alert('Failed to update shop status');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      if (toastApi && toastApi.toast && typeof toastApi.toast.error === 'function') {
+        toastApi.toast.error('Something went wrong');
+      } else {
+        alert('Something went wrong');
+      }
+    }
+  };
 
   useEffect(() => {
     const fetchShop = async () => {
@@ -101,6 +172,7 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   return (
     <div className="min-h-screen bg-gray-50">
+  {/* Toaster removed: react-hot-toast is loaded dynamically when available to avoid build-time dependency */}
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -176,6 +248,17 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <Menu className="h-6 w-6" />
             </button>
 
+            {/* Shop Open/Close Button - extreme left */}
+            <div className="ml-3">
+              <button
+                onClick={handleToggleShopStatus}
+                className={`flex items-center px-3 py-2 text-sm font-semibold rounded-xl text-white shadow-md transition-transform transform hover:scale-105 bg-gradient-to-r ${isOpen ? 'from-lime-500 to-emerald-500' : 'from-red-500 to-rose-600'}`}
+              >
+                <Power className="h-4 w-4 mr-2" />
+                {isOpen ? 'Shop Open' : 'Shop Closed'}
+              </button>
+            </div>
+
             <div className="flex-1 lg:flex-none" />
 
             <div className="flex items-center space-x-4">
@@ -187,7 +270,7 @@ const PartnerLayout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div className="flex items-center space-x-3">
                 <div className="text-right">
                   <p className="text-sm font-medium text-gray-900">{shopData.name || 'Shop Name'}</p>
-                  <p className="text-xs text-gray-500">ID: {shopData.shopId.split(' • ')[0] || 'Loading...'}</p>
+                  <p className="text-xs text-gray-500">ID: {(shopData.shopId || '').split(' • ')[0] || 'Loading...'}</p>
                 </div>
                 <div className="h-10 w-10 bg-gradient-to-r from-lime-500 to-emerald-500 rounded-full flex items-center justify-center">
                   <span className="text-white font-semibold">{shopData.name ? shopData.name.charAt(0).toUpperCase() : 'S'}</span>
