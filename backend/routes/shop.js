@@ -1015,13 +1015,47 @@ router.get('/:id', async (req, res) => {
 // POST create newshop
 router.post('/', async (req, res) => {
 	try {
-		// Generate shopId: 1 uppercase letter + 5 digits + 1 lowercase letter
-		function generateShopId() {
-			const upper = String.fromCharCode(65 + Math.floor(Math.random() * 26));
-			const digits = String(Math.floor(Math.random() * 100000)).padStart(5, '0');
-			const lower = String.fromCharCode(97 + Math.floor(Math.random() * 26));
-			return `${upper}${digits}${lower}`;
-		}
+			// Generate a readable, name-derived unique shop_id (e.g. "rambo_print_shop", "rambo_print_shop_1")
+			// This keeps the ID human-friendly and related to the shop name while guaranteeing
+			// uniqueness by checking the database and falling back to numeric/random suffixes.
+			async function generateUniqueShopId(shopName) {
+				const normalize = (s) => {
+					if (!s) return '';
+					// lowercase, replace non-alnum with underscores, collapse underscores, trim
+					return String(s)
+						.toLowerCase()
+						.replace(/[^a-z0-9]+/g, '_')
+						.replace(/_+/g, '_')
+						.replace(/^_+|_+$/g, '');
+				};
+
+				let baseId = normalize(shopName || 'shop');
+				if (!baseId) baseId = 'shop';
+
+				// Try baseId first
+				let candidate = baseId;
+				const exists = await NewShop.findOne({ shop_id: candidate }).lean();
+				if (!exists) return candidate;
+
+				// Try incremental suffixes _1 .. _99
+				for (let i = 1; i <= 99; i++) {
+					candidate = `${baseId}_${i}`;
+					const e = await NewShop.findOne({ shop_id: candidate }).lean();
+					if (!e) return candidate;
+				}
+
+				// Try a few random 4-digit suffixes
+				for (let tries = 0; tries < 10; tries++) {
+					const rand = Math.floor(Math.random() * 9000) + 1000; // 1000..9999
+					candidate = `${baseId}_${rand}`;
+					const e = await NewShop.findOne({ shop_id: candidate }).lean();
+					if (!e) return candidate;
+				}
+
+						// Extremely rare: fallback to timestamp suffix (use last 4 digits to keep suffix length <= 4)
+						candidate = `${baseId}_${Date.now().toString().slice(-4)}`;
+				return candidate;
+			}
 		// Generate API key
 		function generateApiKey() {
 			return crypto.randomBytes(16).toString('hex');
@@ -1035,21 +1069,13 @@ router.post('/', async (req, res) => {
 		};
 		if (req.body.pricing) baseData.pricing = req.body.pricing;
 
-		// Try to create a shop with a unique shopId. Retry a few times if collisions occur.
-		const MAX_ATTEMPTS = 10;
+		// Try to create a shop with a unique shopId derived from the shopName.
+		// We attempt a few save retries in case of rare race-condition duplicate-key errors.
+		const MAX_SAVE_ATTEMPTS = 6;
 		let lastErr = null;
-		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-			const candidateShopId = generateShopId();
+		for (let attempt = 1; attempt <= MAX_SAVE_ATTEMPTS; attempt++) {
+			const candidateShopId = await generateUniqueShopId(req.body.shopName || req.body.name || req.body.shopName || 'shop');
 			const candidateApiKey = generateApiKey();
-			// Quick existence check
-			const exists = await NewShop.findOne({ shop_id: candidateShopId }).lean();
-			if (exists) {
-				lastErr = new Error('shopId collision (pre-check)');
-				continue; // try again
-			}
-			// Persist the generated identifier into the schema's canonical field `shop_id`.
-			// Using `shopId` here previously resulted in `shop_id` being null and triggered
-			// a duplicate-key error against the unique index on `shop_id`.
 			const shopData = Object.assign({}, baseData, { shop_id: candidateShopId, apiKey: candidateApiKey });
 			const shop = new NewShop(shopData);
 			try {
@@ -1063,10 +1089,10 @@ router.post('/', async (req, res) => {
 				}
 				return res.status(201).json(savedShop);
 			} catch (err) {
-				// If duplicate key error on save, retry. Otherwise bubble up.
+				// If duplicate key error on save, retry with a freshly generated candidate
 				if (err && err.code === 11000) {
 					lastErr = err;
-					continue; // try a new id
+					continue; // try again
 				}
 				throw err;
 			}

@@ -98,6 +98,7 @@ const ShopProfile: React.FC = () => {
   }, [shopData]);
 
   const [tempData, setTempData] = useState<ShopProfileData>({ ...shopData });
+  const [qrDownloading, setQrDownloading] = useState<boolean>(false);
 
   // Helper function to convert 24-hour time to 12-hour format with AM/PM
   const formatTime12Hour = (time24: string) => {
@@ -632,13 +633,35 @@ const ShopProfile: React.FC = () => {
               </p>
               
               {shopData.qr_code_url ? (
-                <a
-                  className="block w-full text-center bg-lime-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-lime-600 transition-colors duration-200"
-                  href={apiUrl(shopData.qr_code_url || '')}
-                  download={`${shopData.shopId || 'shop'}_QR.png`}
+                <button
+                  onClick={async () => {
+                    try {
+                      setQrDownloading(true);
+                      const url = apiUrl(shopData.qr_code_url || '');
+                      const res = await fetch(url);
+                      if (!res.ok) throw new Error('Failed to fetch QR image');
+                      const blob = await res.blob();
+                      const href = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = href;
+                      a.download = `${shopData.shopId || 'shop'}_QR.png`;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      URL.revokeObjectURL(href);
+                    } catch (err) {
+                      console.error('Download failed', err);
+                      // fallback: open in new tab
+                      window.open(apiUrl(shopData.qr_code_url || ''), '_blank');
+                    } finally {
+                      setQrDownloading(false);
+                    }
+                  }}
+                  disabled={qrDownloading}
+                  className={`block w-full text-center px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${qrDownloading ? 'bg-gray-300 text-gray-600 cursor-wait' : 'bg-lime-500 text-white hover:bg-lime-600'}`}
                 >
-                  Download QR Code
-                </a>
+                  {qrDownloading ? 'Downloading…' : 'Download QR Code'}
+                </button>
               ) : (
                 <button
                   disabled
