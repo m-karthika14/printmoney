@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Clock, CheckCircle, Printer, DollarSign, FileText, AlertCircle, ClipboardList } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
+import RevenueGraphSection from '../../components/partner/RevenueGraphSection';
 import { apiFetch } from '../../lib/api';
 
 type DashboardSnapshot = {
@@ -190,6 +191,11 @@ const Dashboard: React.FC = () => {
             </div>
           </motion.div>
           
+        </div>
+
+        {/* Revenue chart: placed above Recent Jobs */}
+        <div>
+          <RevenueGraphSection shopId={shopId} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

@@ -891,6 +891,27 @@ router.get('/:shopId/total-revenue', async (req, res) => {
 	}
 });
 
+// GET /api/shops/:shopId/revenue -> return arrays for daily/weekly/monthly/yearly
+router.get('/:shopId/revenue', async (req, res) => {
+	try {
+		const shopId = req.params.shopId;
+		const shop = await NewShop.findOne({ shop_id: shopId }).lean();
+		if (!shop) return res.status(404).json({ message: 'Shop not found' });
+		const tr = shop.totalRevenue || { daily: {}, weekly: {}, monthly: {}, yearly: {} };
+		const mapToArr = (obj) => Object.entries(obj || {}).map(([k, v]) => ({ date: k, totalRevenue: v?.totalRevenue || 0 }));
+		const payload = {
+			daily: (mapToArr(tr.daily)).sort((a,b) => String(a.date).localeCompare(String(b.date))),
+			weekly: (mapToArr(tr.weekly)).sort((a,b) => String(a.date).localeCompare(String(b.date))),
+			monthly: (mapToArr(tr.monthly)).sort((a,b) => String(a.date).localeCompare(String(b.date))),
+			yearly: (mapToArr(tr.yearly)).sort((a,b) => String(a.date).localeCompare(String(b.date)))
+		};
+		return res.json(payload);
+	} catch (err) {
+		console.error('[REVENUE] Error:', err);
+		return res.status(500).json({ message: err.message || 'Server error' });
+	}
+});
+
 // GET /api/shops/total-revenue -> grand total revenue across all shops (sum of all totalrevenue map values)
 router.get('/total-revenue', async (req, res) => {
 	try {
