@@ -764,6 +764,16 @@ const OnboardingWizard: React.FC = () => {
     }
   };
 
+  // Trigger client download of PrintAgent.exe placed in /public
+  const handleAgentDownload = () => {
+    const link = document.createElement("a");
+    link.href = "/PrintAgent.exe"; // file served from /public
+    link.download = "PrintAgent.exe";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const renderStep2 = () => (
     <div className="space-y-10">
       <div className="text-center">
@@ -783,8 +793,13 @@ const OnboardingWizard: React.FC = () => {
               <div className="flex-1">
                 <p className="text-lg font-semibold text-gray-900">Download the Print Agent</p>
                 <p className="text-gray-600 mb-4">Download the agent for your operating system</p>
-                <button className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300">
-                  Download for Windows
+                <button
+                  onClick={handleAgentDownload}
+                  className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 inline-flex items-center gap-2"
+                  disabled={agentLoading}
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download for Windows</span>
                 </button>
               </div>
             </div>
@@ -1125,12 +1140,23 @@ const OnboardingWizard: React.FC = () => {
           </div>
 
           <div className="mt-12 text-center">
-            <button 
-              onClick={nextStep}
-              className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-600 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
-            >
-              Continue <ArrowRight className="w-6 h-6 ml-2" />
-            </button>
+            <div className="flex items-center justify-center gap-4 flex-wrap">
+              <button
+                onClick={handleAgentDownload}
+                className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
+              >
+                <Download className="w-5 h-5 mr-3" />
+                <span>Download Print Agent</span>
+                <span className="ml-2">💾</span>
+              </button>
+
+              <button 
+                onClick={nextStep}
+                className="bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-600 text-white font-bold py-4 px-12 rounded-xl transition-all duration-300 inline-flex items-center transform hover:scale-105"
+              >
+                Continue <ArrowRight className="w-6 h-6 ml-2" />
+              </button>
+            </div>
           </div>
         </div>
       </div>

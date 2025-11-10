@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 // Capability schema (for both agent + manual)
 const CapabilitySchema = new mongoose.Schema({
-  type: { type: String, enum: ["B/W", "Color", "Color+B/W", "color"] },
+  type: { type: String, enum: ["Color", "B/W", "Color+B/W"], required: true },
   duplex: { type: Boolean, default: false },
   paperSizes: [String] // e.g. ["A4", "A3", "Letter"]
 }, { _id: false }); // no separate _id for each capability

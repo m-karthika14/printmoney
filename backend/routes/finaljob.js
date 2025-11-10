@@ -15,7 +15,8 @@ router.post('/assign', async (req, res) => {
     // Require canonical shopId form for consistency
   const shop = await NewShop.findOne({ shop_id: shop_id });
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
-    const autoPrintMode = !!shop.autoPrintMode;
+    // Default new FinalJob to manual mode; autoPrintMode is stored per-FinalJob
+    const autoPrintMode = false;
     // If a FinalJob already exists for this job_number, return it (idempotent)
     const existing = await FinalJob.findOne({ job_number }).lean();
     if (existing) {
@@ -221,18 +222,23 @@ router.patch('/autoprint/:shop_id', async (req, res) => {
     if (typeof autoPrintMode !== 'boolean') {
       return res.status(400).json({ message: 'autoPrintMode boolean is required' });
     }
-    // When turning ON auto mode: also clear any manualTriggered flags (mutually exclusive)
-    // When turning OFF auto mode: leave manualTriggered as-is (manual triggers can be set per job)
+    // Update FinalJob documents for this shop to reflect the chosen mode.
+    // When enabling auto, clear manualTriggered (mutually exclusive). When
+    // disabling auto, leave manualTriggered as-is.
     const update = autoPrintMode ? { autoPrintMode: true, manualTriggered: false } : { autoPrintMode: false };
     const result = await FinalJob.updateMany(
       { shop_id: shopId },
       { $set: update }
     );
-    res.json({ success: true, matched: result.matchedCount ?? result.n, modified: result.modifiedCount ?? result.nModified });
+
+    // Return the authoritative value that was applied to FinalJob docs.
+    res.json({ success: true, matched: result.matchedCount ?? result.n, modified: result.modifiedCount ?? result.nModified, autoPrintMode });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
+
+// (Removed) sync-autoprint admin endpoint; autoPrintMode is stored on FinalJob documents.
 
 // Manual print trigger (frontend uses manualTrigger; map to manualTriggered without schema change)
 router.patch('/:id/manual', async (req, res) => {

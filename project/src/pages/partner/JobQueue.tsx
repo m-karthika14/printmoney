@@ -120,8 +120,19 @@ const JobQueue: React.FC = () => {
         body: JSON.stringify({ autoPrintMode: next })
       });
       if (!resp.ok) throw new Error('Failed to update autoPrintMode');
-      setAutoPrintMode(next);
-      fetchQueue();
+      // Prefer server-confirmed value when available, fall back to optimistic toggle
+      let confirmed = next;
+      try {
+        const body = await resp.json();
+        if (body && typeof body.autoPrintMode === 'boolean') confirmed = body.autoPrintMode;
+      } catch (err) {
+        // ignore parse errors and keep optimistic value
+      }
+      setAutoPrintMode(confirmed);
+      // Don't immediately re-fetch the whole queue here — the server may not have
+      // fully propagated the change yet and an immediate fetch can read stale
+      // data which causes the UI to revert. Polling (already enabled) will
+      // reconcile the queue shortly.
     } catch (e) {
       console.error(e);
     }

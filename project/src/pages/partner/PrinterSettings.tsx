@@ -171,9 +171,16 @@ const normalizeCapabilities = (capAny: any) => {
       const agentCap = normalizeCapabilities(p?.agentDetected?.capabilities);
       const manualCap = normalizeCapabilities(p?.manualOverride?.capabilities);
 
-      // Normalize type: treat any string containing 'color' as Color, else B/W
+      // Normalize type. Preserve 'Color+B/W' when manually set; otherwise
+      // treat strings containing 'color' as Color, else B/W.
       const rawType = manualCap.type || agentCap.type || 'B/W';
-      const finalType = /color/i.test(String(rawType)) ? 'Color' : 'B/W';
+      let finalType = 'B/W';
+      if (typeof rawType === 'string') {
+        const rt = rawType.toLowerCase();
+        if (rt.includes('color+bw') || /color\W*bw/i.test(rawType)) finalType = 'Color+B/W';
+        else if (rt.includes('color')) finalType = 'Color';
+        else finalType = 'B/W';
+      }
 
       // Duplex coercion
       const finalDuplex = (typeof manualCap.duplex !== 'undefined' && manualCap.duplex !== null) ? !!manualCap.duplex : !!agentCap.duplex;
@@ -276,8 +283,12 @@ const normalizeCapabilities = (capAny: any) => {
     const hasManualDuplex = typeof printer?.manualOverride?.capabilities?.[0]?.duplex !== 'undefined';
     const hasManualSizes = Array.isArray(manualCap.paperSizes) && manualCap.paperSizes.length > 0;
     const startName = (printer?.manualOverride?.name) || (printer?.agentDetected?.name) || (printer as any)?.printerid || '';
-    const startTypeStr = hasManualType ? manualCap.type : (agentCap.type || 'B/W');
-    const startTypeToken = /color/i.test(String(startTypeStr)) ? 'color' : 'bw';
+  const startTypeStr = hasManualType ? manualCap.type : (agentCap.type || 'B/W');
+  // Map incoming canonical types to internal tokens: 'color', 'bw', 'color+bw'
+  const sType = String(startTypeStr || '').toLowerCase();
+  let startTypeToken = 'bw';
+  if (sType.includes('color+bw') || /color\W*bw/i.test(startTypeStr)) startTypeToken = 'color+bw';
+  else if (sType.includes('color')) startTypeToken = 'color';
     const startDuplex = hasManualDuplex ? !!manualCap.duplex : !!agentCap.duplex;
     const startSizes = hasManualSizes ? manualCap.paperSizes : (agentCap.paperSizes || []);
 
@@ -317,9 +328,11 @@ const normalizeCapabilities = (capAny: any) => {
       }
       // Capabilities
       const capObj: any = {};
-      // Type: map token to canonical
+      // Type: map token to canonical (support color+bw)
       if (changedFields && changedFields.has('type')) {
-        capObj.type = editForm.capabilities.type === 'color' ? 'Color' : 'B/W';
+        if (editForm.capabilities.type === 'color') capObj.type = 'Color';
+        else if (editForm.capabilities.type === 'color+bw') capObj.type = 'Color+B/W';
+        else capObj.type = 'B/W';
       }
       if (changedFields && changedFields.has('duplex')) {
         capObj.duplex = !!editForm.capabilities.duplex;
@@ -411,9 +424,10 @@ const normalizeCapabilities = (capAny: any) => {
                 // Resolve final values per-field (manualOverride takes precedence)
                 const final = getFinalPrinterValues(printer);
                 const displayName = final.name || printer.printerid || 'Printer';
-                const colorMode = (final.type === 'Color') ? 'color' : 'bw';
+                const colorMode = (final.type === 'Color') ? 'color' : (final.type === 'Color+B/W' ? 'color+bw' : 'bw');
                 const capabilities = {
-                  colorSupport: final.type === 'Color',
+                  // Treat Color+B/W as having color capability as well
+                  colorSupport: final.type === 'Color' || final.type === 'Color+B/W',
                   colorMode,
                   duplexSupport: !!final.duplex,
                   paperSizes: final.paperSizes || [],
@@ -646,6 +660,7 @@ const normalizeCapabilities = (capAny: any) => {
                             >
                               <option value="bw" className="bg-white text-gray-700 py-2 hover:bg-gray-100">B/W</option>
                               <option value="color" className="bg-white text-purple-700 py-2 hover:bg-purple-50">Color</option>
+                              <option value="color+bw" className="bg-white text-indigo-700 py-2 hover:bg-indigo-50">Color + B/W</option>
                             </select>
                             <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                               <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">

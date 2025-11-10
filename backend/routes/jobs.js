@@ -58,7 +58,8 @@ router.get('/queue/:shop_id', async (req, res) => {
   const printing = finals.filter(f => f.job_status === 'printing').length;
   const completed = finals.filter(f => f.job_status === 'completed').length;
     const total = jobs.length;
-  // Derive shop auto mode from active jobs first, else fallback to most recent finaljob
+  // Derive shop auto mode from active FinalJob documents first, else fallback
+  // to the most recent finaljob's value.
   const active = finals.filter(f => f.job_status === 'pending' || f.job_status === 'printing');
   let autoMode = active.some(f => !!f.autoPrintMode);
   if (!autoMode && active.length === 0 && finals.length > 0) {
