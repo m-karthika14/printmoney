@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { RefreshCw, FileText, User, Phone, Play, Pause } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
-import { apiFetch } from '../../lib/api';
+import { apiFetch, fetchDashboard, fetchShop } from '../../lib/api';
+import { connectSocket, disconnectSocket, LiveCounts } from '../../lib/socket';
 
 export type QueueJob = {
   finaljobId: string;
@@ -25,14 +26,14 @@ const JobQueue: React.FC = () => {
   const [shopId, setShopId] = useState<string>('');
   const [isPolling] = useState<boolean>(true);
   const [triggering, setTriggering] = useState<Set<string>>(new Set());
-  const [total24, setTotal24] = useState<number>(0);
+  const [todayJobs, setTodayJobs] = useState<number>(0);
   // ...existing code...
 
   const printingCount = counts.printing;
   const completedCount = counts.completed;
 
-  const formatTime = (timeString: string) => new Date(timeString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-  const formatDate = (timeString: string) => new Date(timeString).toLocaleDateString('en-IN');
+  const formatTime = (timeString: string) => new Date(timeString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+  const formatDate = (timeString: string) => new Date(timeString).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
   const formatAmount = (val: unknown) => {
     const n = typeof val === 'number' ? val : (typeof val === 'string' ? Number(val) : NaN);
     if (!Number.isFinite(n)) return '₹—';
@@ -100,13 +101,19 @@ const JobQueue: React.FC = () => {
   const fetchTotals = useCallback(async () => {
     if (!shopId) return;
     try {
-  const resp = await apiFetch(`/api/jobs/total/${shopId}?last24=true`);
-      if (!resp.ok) throw new Error('Failed to fetch total jobs');
-      const data = await resp.json();
-      if (typeof data.totalJobs === 'number') setTotal24(data.totalJobs);
-      // no dashboard fetch here; JobQueue total card shows only last-24h jobs from Job collection
+      // Derive todayJobs from NewShop.dailystats per spec
+      const shop = await fetchShop(shopId);
+      const istKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const utcKey = new Date().toISOString().split('T')[0];
+      const ds = shop?.dailystats || {};
+      const today = (typeof ds[istKey]?.totalJobsCompleted === 'number') ? ds[istKey].totalJobsCompleted : (typeof ds[utcKey]?.totalJobsCompleted === 'number' ? ds[utcKey].totalJobsCompleted : 0);
+      setTodayJobs(today);
     } catch (e) {
-      console.error(e);
+      console.error('[JobQueue] totals fetch failed; falling back to dashboard:', e);
+      try {
+        const dash = await fetchDashboard(shopId);
+        if (dash && typeof dash.todayJobs === 'number') setTodayJobs(dash.todayJobs);
+      } catch {}
     }
   }, [shopId]);
 
@@ -172,6 +179,24 @@ const JobQueue: React.FC = () => {
 
   useEffect(() => { if (shopId) { fetchQueue(); fetchTotals(); } }, [shopId, fetchQueue, fetchTotals]);
 
+  // Instant updates via Socket.IO
+  useEffect(() => {
+    if (!shopId) return;
+    const socket = connectSocket(shopId);
+    const onCounts = (c: LiveCounts) => {
+      setCounts({ printing: c.printing, completed: c.completed, total: c.pending + c.printing + c.completed });
+      // Refresh totals so "Total Jobs Today" updates instantly
+      try { fetchTotals(); } catch (err) { /* ignore */ }
+    };
+    const onJob = () => { fetchQueue(); fetchTotals(); };
+    socket.on('counts', onCounts);
+    socket.on('finaljob:update', onJob);
+    return () => {
+      try { socket.off('counts', onCounts); socket.off('finaljob:update', onJob); } catch {}
+      disconnectSocket();
+    };
+  }, [shopId, fetchQueue, fetchTotals]);
+
   return (
     <PartnerLayout>
       <div className="space-y-6">
@@ -199,10 +224,10 @@ const JobQueue: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Jobs</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{total24}</p>
+                <p className="text-sm font-medium text-gray-600">Total Jobs Today</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{todayJobs}</p>
               </div>
-              <div className="px-3 py-1 rounded-full text-sm font-medium bg-lime-100 text-lime-800">Last 24h</div>
+              <div className="px-3 py-1 rounded-full text-sm font-medium bg-lime-100 text-lime-800">Today</div>
             </div>
           </div>
         </motion.div>

@@ -18,8 +18,31 @@ function normalizeStatus(status) {
 }
 
 function normalizeType(cap) {
+  // Agent-reported capabilities may come in various shapes and value types.
+  // For agent-detected values we only allow two final values: 'Color' or 'B/W'.
   if (!cap) return 'B/W';
-  if (cap.color === true) return 'Color';
+
+  const read = (k) => {
+    const v = cap[k];
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'number') return v !== 0;
+    if (typeof v === 'string') {
+      const s = v.trim().toLowerCase();
+      return s === 'true' || s === '1' || s === 'yes' || s === 'y' || s === 'on';
+    }
+    return undefined;
+  };
+
+  // Try several common candidate keys
+  const color = read('color') ?? read('colorSupported') ?? read('colorSupport') ?? read('isColor');
+  const bw = read('bw') ?? read('grayscale') ?? read('bwSupported') ?? read('blackAndWhite');
+
+  // If agent explicitly reports color true and not bw, return Color.
+  if (color && !bw) return 'Color';
+  // If agent explicitly reports bw true and not color, return B/W.
+  if (bw && !color) return 'B/W';
+  // Default: if color truthy treat as Color, else B/W
+  if (color) return 'Color';
   return 'B/W';
 }
 

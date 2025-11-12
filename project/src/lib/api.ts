@@ -13,3 +13,17 @@ export const apiUrl = (path: string): string => {
 export function apiFetch(path: string, init?: RequestInit) {
   return fetch(apiUrl(path), init);
 }
+
+// Helper: fetch dashboard stats in unified shape
+export async function fetchDashboard(shopId: string) {
+  const resp = await apiFetch(`/api/shops/shop/${encodeURIComponent(shopId)}/dashboard`);
+  if (!resp.ok) throw new Error('Failed to fetch dashboard');
+  return resp.json();
+}
+
+// Helper: fetch full NewShop document by canonical shop_id
+export async function fetchShop(shopId: string) {
+  const resp = await apiFetch(`/api/shops/by-shop/${encodeURIComponent(shopId)}`);
+  if (!resp.ok) throw new Error('Failed to fetch shop');
+  return resp.json();
+}

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Search } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
-import { apiFetch } from '../../lib/api';
+import { apiFetch, fetchDashboard, fetchShop } from '../../lib/api';
 
 type QueueJob = {
   finaljobId: string;
@@ -30,9 +30,10 @@ const PrintHistory: React.FC = () => {
   const [shopId, setShopId] = useState('');
   const [jobs, setJobs] = useState<QueueJob[]>([]);
   const [dailystats, setDailystats] = useState<DailyStat[]>([]);
+  const [lifetimeJobsCompleted, setLifetimeJobsCompleted] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [grandRevenue, setGrandRevenue] = useState<number>(0);
+  const [lifetimeRevenue, setLifetimeRevenue] = useState<number>(0);
 
   // Resolve shopId from URL/localStorage (canonical like T47439k)
   useEffect(() => {
@@ -60,10 +61,9 @@ const PrintHistory: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [queueRes, dsRes, shopSumRes] = await Promise.all([
+      const [queueRes, dsRes] = await Promise.all([
         apiFetch(`/api/jobs/queue/${sid}`),
-        apiFetch(`/api/shops/${sid}/dailystats?limit=365`),
-        apiFetch(`/api/shops/${sid}/total-revenue?sum=true`)
+        apiFetch(`/api/shops/${sid}/dailystats?limit=365`)
       ]);
       if (!queueRes.ok) throw new Error('Failed to fetch jobs');
       if (!dsRes.ok) throw new Error('Failed to fetch dailystats');
@@ -71,12 +71,23 @@ const PrintHistory: React.FC = () => {
       const dsJson = await dsRes.json();
       const list: QueueJob[] = Array.isArray(queueJson.jobs) ? queueJson.jobs : [];
       setJobs(list);
-      const ds: DailyStat[] = Array.isArray(dsJson.data) ? dsJson.data : [];
-      setDailystats(ds);
+  const ds: DailyStat[] = Array.isArray(dsJson.data) ? dsJson.data : [];
+  setDailystats(ds);
+  // lifetimeJobsCompleted provided by backend for quick all-time total
+  if (typeof dsJson.lifetimeJobsCompleted === 'number') setLifetimeJobsCompleted(dsJson.lifetimeJobsCompleted);
+      // Prefer lifetime stats from NewShop directly per mapping
       try {
-        const json = await shopSumRes.json();
-        if (typeof json.total === 'number') setGrandRevenue(json.total);
-      } catch {}
+        const shop = await fetchShop(sid);
+        if (shop && typeof shop.lifetimeRevenue === 'number') setLifetimeRevenue(shop.lifetimeRevenue);
+        if (shop && typeof shop.lifetimeJobsCompleted === 'number') setLifetimeJobsCompleted(shop.lifetimeJobsCompleted);
+      } catch (err) {
+        // Fallback: dashboard snapshot if shop fetch fails
+        try {
+          const dash = await fetchDashboard(sid);
+          if (dash && typeof dash.lifetimeRevenue === 'number') setLifetimeRevenue(dash.lifetimeRevenue);
+          if (dash && typeof dash.lifetimeJobsCompleted === 'number') setLifetimeJobsCompleted(dash.lifetimeJobsCompleted);
+        } catch {}
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load');
     } finally {
@@ -102,7 +113,7 @@ const PrintHistory: React.FC = () => {
   const formatDateTime = (s?: string) => {
     const d = parseDate(s);
     if (!d) return '—';
-    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
   };
 
   // Derived: Completed jobs only
@@ -156,7 +167,10 @@ const PrintHistory: React.FC = () => {
   // Cards: revenue from filtered jobs, completed jobs from dailystats (all-time snapshot sum)
   // Total Revenue card now shows grand total across all shops from backend
 
-  const allTimeCompleted = useMemo(() => dailystats.reduce((sum, d) => sum + (typeof d.totalJobsCompleted === 'number' ? d.totalJobsCompleted : 0), 0), [dailystats]);
+  const allTimeCompleted = useMemo(() => {
+    if (typeof lifetimeJobsCompleted === 'number') return lifetimeJobsCompleted;
+    return dailystats.reduce((sum, d) => sum + (typeof d.totalJobsCompleted === 'number' ? d.totalJobsCompleted : 0), 0);
+  }, [dailystats, lifetimeJobsCompleted]);
   // Helpers: safe customer renderer (avoid rendering raw objects directly)
   const displayCustomer = (c?: any): string => {
     if (!c) return '\u2014';
@@ -198,7 +212,7 @@ const PrintHistory: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <div className="flex items-baseline justify-between w-full">
               <h3 className="text-sm font-medium text-black">Total Revenue</h3>
-              <p className="text-2xl font-bold text-gray-900">{formatAmount(grandRevenue)}</p>
+              <p className="text-2xl font-bold text-gray-900">{formatAmount(lifetimeRevenue)}</p>
             </div>
           </div>
           <div className="bg-white rounded-2xl shadow-lg p-6">

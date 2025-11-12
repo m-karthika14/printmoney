@@ -107,6 +107,20 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 
 		const canonical = shop.shop_id || shopId;
 
+		// IST day key for calendar-day lookups in embedded maps
+		let todayRevenue = 0;
+		let todayJobs = 0;
+		try {
+			const { getIstDayKey } = require('../utils/ist');
+			const dayKey = getIstDayKey(new Date());
+			const trDaily = (shop.totalRevenue && shop.totalRevenue.daily) || {};
+			const dsMap = shop.dailystats || {};
+			const trEntry = trDaily[dayKey];
+			todayRevenue = (trEntry && typeof trEntry.totalRevenue === 'number') ? trEntry.totalRevenue : 0;
+			const dsEntry = dsMap[dayKey];
+			todayJobs = (dsEntry && typeof dsEntry.totalJobsCompleted === 'number') ? dsEntry.totalJobsCompleted : (dsEntry && typeof dsEntry.completedCount === 'number' ? dsEntry.completedCount : 0);
+		} catch (e) { /* ignore and keep zeros */ }
+
 		// Rolling 24-hour window counts using FinalJob (completed within last 24 hours)
 		const now = new Date();
 		const since24 = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -114,7 +128,7 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 		const prevUntil = since24;
 
 		// completed in last 24h, pending now, and completed in previous 24h (for percent change)
-		const [completedToday, pendingNow, yesterdayCompleted] = await Promise.all([
+		const [completedToday, pendingNow, printingNow, completedNow, yesterdayCompleted] = await Promise.all([
 			FinalJob.countDocuments({
 				shop_id: canonical,
 				job_status: 'completed',
@@ -124,6 +138,8 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 				]
 			}),
 			FinalJob.countDocuments({ shop_id: canonical, job_status: 'pending' }),
+			FinalJob.countDocuments({ shop_id: canonical, job_status: 'printing' }),
+			FinalJob.countDocuments({ shop_id: canonical, job_status: 'completed' }),
 			FinalJob.countDocuments({
 				shop_id: canonical,
 				job_status: 'completed',
@@ -184,8 +200,9 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 				// completedToday is always computed from FinalJob (rolling last 24h)
 				let yesterdayFromDs = null;
 				try {
-					const yDate = new Date(); yDate.setDate(yDate.getDate() - 1); yDate.setHours(0,0,0,0);
-					const dayKey = yDate.toISOString().slice(0,10);
+						const { getIstDayKey } = require('../utils/ist');
+						const yDate = new Date(); yDate.setDate(yDate.getDate() - 1);
+						const dayKey = getIstDayKey(yDate);
 					const ds = shop.dailystats || {};
 					const entry = ds && ds[dayKey];
 					const val = entry && (typeof entry.totalJobsCompleted === 'number' ? entry.totalJobsCompleted : entry.completedCount);
@@ -206,22 +223,8 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 					return `${sign}${pct}%`;
 				})();
 
-				// Compute today's earnings (calendar day) dynamically from FinalJob if needed
-				let earningsToday = 0;
-				try {
-					const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-					const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
-					const canonicalId = canonical;
-					const rows = await FinalJob.aggregate([
-						{ $match: { shop_id: canonicalId, job_status: 'completed', $or: [ { completed_at: { $gte: todayStart, $lt: todayEnd } }, { createdAt: { $gte: todayStart, $lt: todayEnd } } ] } },
-						{ $project: { amount: { $convert: { input: { $ifNull: ['$total_amount', '$totalAmount'] }, to: 'double', onError: 0, onNull: 0 } } } },
-						{ $group: { _id: null, total: { $sum: '$amount' } } }
-					]);
-					earningsToday = rows[0]?.total || 0;
-				} catch (e) {
-					console.warn('[DASHBOARD] earningsToday aggregation failed:', e && e.message ? e.message : e);
-					earningsToday = 0;
-				}
+				// Prefer embedded map snapshot for calendar day revenue
+				const earningsToday = todayRevenue;
 
 				// Final payload
 				res.json({
@@ -232,7 +235,14 @@ router.get('/shop/:shopId/dashboard', async (req, res) => {
 						pendingJobs: pendingNow,
 						printers: { online: onlinePrinters, total: totalPrinters },
 						recentJobs,
-						printerList
+						printerList,
+						// Compact stats per API proposal
+						todayRevenue: todayRevenue,
+						todayJobs: todayJobs,
+						printingJobs: printingNow,
+						completedJobs: completedNow,
+						lifetimeRevenue: typeof shop.lifetimeRevenue === 'number' ? shop.lifetimeRevenue : 0,
+						lifetimeJobsCompleted: typeof shop.lifetimeJobsCompleted === 'number' ? shop.lifetimeJobsCompleted : 0
 				});
 	} catch (err) {
 		console.error('[DASHBOARD] Error:', err);
@@ -554,13 +564,20 @@ router.patch('/:id/printer/:printerId', async (req, res) => {
 		if (Object.prototype.hasOwnProperty.call(incoming, 'name')) merged.name = incoming.name;
 		if (Object.prototype.hasOwnProperty.call(incoming, 'notes')) merged.notes = incoming.notes;
 
-		// Merge capabilities into first element; normalize type to "Color" | "B/W"
-		const existingCap = (baseManual.capabilities && Array.isArray(baseManual.capabilities) && baseManual.capabilities[0]) || {};
-		const incCap = (incoming.capabilities && (Array.isArray(incoming.capabilities) ? incoming.capabilities[0] : incoming.capabilities)) || {};
-		const capMerged = Object.assign({}, existingCap, incCap);
-		const normType = (val) => (/color/i.test(String(val || '')) ? 'Color' : 'B/W');
-		if (typeof capMerged.type !== 'undefined') capMerged.type = normType(capMerged.type);
-		if (Object.keys(capMerged).length > 0) merged.capabilities = [capMerged];
+				// Merge capabilities into first element; normalize type to allow manual 'Color+B/W'
+				const existingCap = (baseManual.capabilities && Array.isArray(baseManual.capabilities) && baseManual.capabilities[0]) || {};
+				const incCap = (incoming.capabilities && (Array.isArray(incoming.capabilities) ? incoming.capabilities[0] : incoming.capabilities)) || {};
+				const capMerged = Object.assign({}, existingCap, incCap);
+				// normType: preserve 'Color+B/W' when explicitly provided by manual overrides or incoming values.
+				const normType = (val) => {
+					const s = String(val || '').toLowerCase();
+					// Accept explicit tokens like 'color+bw' or 'color+b/w' or forms containing both color and bw
+					if (/color\W*bw/.test(s) || (s.includes('color') && (s.includes('bw') || s.includes('b/w') || s.includes('grayscale') || s.includes('black')))) return 'Color+B/W';
+					if (/color/.test(s)) return 'Color';
+					return 'B/W';
+				};
+				if (typeof capMerged.type !== 'undefined') capMerged.type = normType(capMerged.type);
+				if (Object.keys(capMerged).length > 0) merged.capabilities = [capMerged];
 
 		// Build atomic $set update
 		const setObj = {};
@@ -599,9 +616,14 @@ router.get('/:id/printers', async (req, res) => {
 			const agentCap = (toObj.agentDetected?.capabilities?.[0]) || toObj.agentDetected?.capabilities || {};
 			const manualCap = (toObj.manualOverride?.capabilities?.[0]) || toObj.manualOverride?.capabilities || {};
 
-			// Only allow two final types: "Color" | "B/W"; treat anything containing 'color' as Color
-			const normType = (val) => (/color/i.test(String(val || '')) ? 'Color' : 'B/W');
-			const finalType = manualCap.type ? normType(manualCap.type) : agentCap.type ? normType(agentCap.type) : 'B/W';
+						// Allow manual values to specify 'Color+B/W' while agent values remain two-way.
+						const normType = (val) => {
+							const s = String(val || '').toLowerCase();
+							if (/color\W*bw/.test(s) || (s.includes('color') && (s.includes('bw') || s.includes('b/w') || s.includes('grayscale') || s.includes('black')))) return 'Color+B/W';
+							if (/color/.test(s)) return 'Color';
+							return 'B/W';
+						};
+						const finalType = manualCap.type ? normType(manualCap.type) : agentCap.type ? normType(agentCap.type) : 'B/W';
 			const finalDuplex = (typeof manualCap.duplex !== 'undefined') ? !!manualCap.duplex : !!agentCap.duplex;
 			const finalPaperSizes = (Array.isArray(manualCap.paperSizes) && manualCap.paperSizes.length)
 				? manualCap.paperSizes
@@ -641,13 +663,18 @@ router.patch('/:shopId/printers/:printerId', async (req, res) => {
 		const baseManual = (printer.manualOverride && printer.manualOverride.toObject ? printer.manualOverride.toObject() : printer.manualOverride) || {};
 		const merged = Object.assign({}, baseManual, incoming);
 
-		// Capabilities: partial merge into first element; normalize type to "Color" | "B/W"
-		const existingCap = (baseManual.capabilities && Array.isArray(baseManual.capabilities) && baseManual.capabilities[0]) || {};
-		const incCap = (incoming.capabilities && (Array.isArray(incoming.capabilities) ? incoming.capabilities[0] : incoming.capabilities)) || {};
-		const normType = (val) => (/color/i.test(String(val || '')) ? 'Color' : 'B/W');
-		const capMerged = Object.assign({}, existingCap, incCap);
-		if (typeof capMerged.type !== 'undefined') capMerged.type = normType(capMerged.type);
-		if (Object.keys(capMerged).length > 0) merged.capabilities = [capMerged];
+				// Capabilities: partial merge into first element; normalize type but preserve 'Color+B/W' for manual
+				const existingCap = (baseManual.capabilities && Array.isArray(baseManual.capabilities) && baseManual.capabilities[0]) || {};
+				const incCap = (incoming.capabilities && (Array.isArray(incoming.capabilities) ? incoming.capabilities[0] : incoming.capabilities)) || {};
+				const normType = (val) => {
+					const s = String(val || '').toLowerCase();
+					if (/color\W*bw/.test(s) || (s.includes('color') && (s.includes('bw') || s.includes('b/w') || s.includes('grayscale') || s.includes('black')))) return 'Color+B/W';
+					if (/color/.test(s)) return 'Color';
+					return 'B/W';
+				};
+				const capMerged = Object.assign({}, existingCap, incCap);
+				if (typeof capMerged.type !== 'undefined') capMerged.type = normType(capMerged.type);
+				if (Object.keys(capMerged).length > 0) merged.capabilities = [capMerged];
 
 		const setObj = {};
 		setObj[`printers.${idx}.manualOverride`] = merged;
@@ -840,9 +867,11 @@ router.get('/:shopId/dailystats', async (req, res) => {
 		const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '30')));
 	const shop = await NewShop.findOne({ shop_id: shopId }).lean();
 		if (!shop) return res.status(404).json({ message: 'Shop not found' });
-		const ds = shop.dailystats || {};
-		const entries = Object.entries(ds).map(([date, obj]) => ({ date, totalJobsCompleted: obj?.totalJobsCompleted ?? obj?.completedCount ?? 0, createdAt: obj?.createdAt })).sort((a,b) => b.date.localeCompare(a.date));
-		return res.json({ success: true, count: entries.length, data: entries.slice(0, limit) });
+	const ds = shop.dailystats || {};
+	const entries = Object.entries(ds).map(([date, obj]) => ({ date, totalJobsCompleted: obj?.totalJobsCompleted ?? obj?.completedCount ?? 0, createdAt: obj?.createdAt })).sort((a,b) => b.date.localeCompare(a.date));
+	// Include lifetime counter (fast lookup) so frontend can show all-time total without scanning DB
+	const lifetime = typeof shop.lifetimeJobsCompleted === 'number' ? shop.lifetimeJobsCompleted : undefined;
+	return res.json({ success: true, count: entries.length, data: entries.slice(0, limit), lifetimeJobsCompleted: lifetime });
 	} catch (err) {
 		console.error('[DAILYSTATS] Error:', err);
 		res.status(500).json({ message: err.message });
@@ -1087,6 +1116,48 @@ router.post('/', async (req, res) => {
 				} catch (qrErr) {
 					console.warn('[SHOP CREATE] QR generation warning:', qrErr.message);
 				}
+
+				// Reconcile any pre-existing completed FinalJobs for this shop so counters
+				// are populated immediately for newly-registered shops.
+				// We only pick FinalJobs with job_status:'completed' and dailyIncrementDone != true
+				// Aggregate totals per calendar-day (UTC YYYY-MM-DD) and apply to NewShop
+				try {
+					const pending = await FinalJob.find({ shop_id: savedShop.shop_id, job_status: 'completed', dailyIncrementDone: { $ne: true } }).lean();
+					if (pending && pending.length > 0) {
+						const dayMap = Object.create(null);
+						let lifetimeJobs = 0;
+						let lifetimeRevenue = 0;
+						for (const j of pending) {
+							const d = new Date(j.completed_at || j.updatedAt || j.createdAt || Date.now());
+							const dayKey = d.toISOString().slice(0,10); // UTC day
+							const amt = (typeof j.total_amount === 'number') ? j.total_amount : (parseFloat(j.total_amount) || 0);
+							if (!dayMap[dayKey]) dayMap[dayKey] = { count: 0, revenue: 0 };
+							dayMap[dayKey].count += 1;
+							dayMap[dayKey].revenue += amt;
+							lifetimeJobs += 1;
+							lifetimeRevenue += amt;
+						}
+						// Build atomic update for NewShop
+						const incObj = {};
+						const setObj = {};
+						for (const [day, vals] of Object.entries(dayMap)) {
+							incObj[`dailystats.${day}.totalJobsCompleted`] = vals.count;
+							setObj[`dailystats.${day}.createdAt`] = new Date();
+							incObj[`totalRevenue.daily.${day}.totalRevenue`] = vals.revenue;
+						}
+						if (lifetimeJobs) incObj.lifetimeJobsCompleted = lifetimeJobs;
+						if (lifetimeRevenue) incObj.lifetimeRevenue = lifetimeRevenue;
+						if (Object.keys(incObj).length > 0) {
+							await NewShop.updateOne({ _id: savedShop._id }, { $inc: incObj, $set: setObj }).exec();
+							// Mark those FinalJobs as applied so future hooks won't double-count
+							await FinalJob.updateMany({ shop_id: savedShop.shop_id, job_status: 'completed', dailyIncrementDone: { $ne: true } }, { $set: { dailyIncrementDone: true } }).exec();
+							console.log('[SHOP CREATE] Reconciled', pending.length, 'FinalJobs for shop', savedShop.shop_id);
+						}
+					}
+				} catch (reconErr) {
+					console.warn('[SHOP CREATE] Reconciliation failed (non-fatal):', reconErr && reconErr.message ? reconErr.message : reconErr);
+				}
+
 				return res.status(201).json(savedShop);
 			} catch (err) {
 				// If duplicate key error on save, retry with a freshly generated candidate

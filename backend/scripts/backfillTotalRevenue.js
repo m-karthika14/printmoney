@@ -14,7 +14,7 @@ async function main() {
     for (const s of shops) {
       const sid = s.shop_id || s.shopId;
       if (!sid) continue;
-      // Aggregate completed FinalJobs grouped by calendar day of createdAt
+      // Aggregate completed FinalJobs grouped by UTC calendar day of completion (fallback to createdAt)
       const rows = await FinalJob.aggregate([
         { $match: { shop_id: sid, job_status: 'completed' } },
         { $project: {
@@ -25,9 +25,9 @@ async function main() {
                 { $cond: [ { $ne: ['$totalAmount', null] }, { $cond: [ { $isNumber: '$totalAmount' }, '$totalAmount', { $convert: { input: '$totalAmount', to: 'double', onError: 0, onNull: 0 } } ] }, 0 ] }
               ]
             },
-            createdAt: '$createdAt'
+            when: { $ifNull: ['$completed_at', '$createdAt'] }
         } },
-        { $addFields: { day: { $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$createdAt', new Date(0)] } } } } },
+          { $addFields: { day: { $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$when', new Date(0)] }, timezone: 'UTC' } } } },
         { $group: { _id: '$day', totalRevenue: { $sum: '$amount' } } },
         { $sort: { _id: 1 } }
       ]);
@@ -35,7 +35,8 @@ async function main() {
       const setDoc = {};
       for (const r of rows) {
         totalBuckets += 1;
-        setDoc[`totalrevenue.${r._id}.totalRevenue`] = r.totalRevenue || 0;
+        // Write into the canonical `totalRevenue.daily.<YYYY-MM-DD>.totalRevenue` map
+        setDoc[`totalRevenue.daily.${r._id}.totalRevenue`] = r.totalRevenue || 0;
       }
       if (Object.keys(setDoc).length > 0) {
         await NewShop.updateOne(

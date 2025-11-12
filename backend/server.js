@@ -154,7 +154,25 @@ mongoose.connect(process.env.MONGO_URI, {
     console.log(`Server is running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV}`);
   });
-  // Socket.IO removed: polling is used on frontend
+  // Start periodic dailystats sweep to catch completed FinalJobs that were missed
+  try {
+    const { runSweep } = require('./utils/dailystatsSweep');
+  const sweepIntervalMs = parseInt(process.env.DAILYSTATS_SWEEP_INTERVAL_MS || String(1 * 60 * 1000), 10); // default 1 minute
+    setInterval(() => {
+      runSweep({ dryRun: false, batchSize: 500 }).catch(err => console.error('[DAILYSTATS-SWEEP] interval error:', err && err.message ? err.message : err));
+    }, sweepIntervalMs);
+    console.log('[DAILYSTATS-SWEEP] scheduled every', sweepIntervalMs, 'ms');
+  } catch (e) {
+    console.warn('[DAILYSTATS-SWEEP] setup failed:', e && e.message ? e.message : e);
+  }
+  // Initialize Socket.IO for instant updates to frontend
+  try {
+    const { initSocket } = require('./socket');
+    initSocket(server, allowedOrigins);
+    console.log('[Socket] Initialized');
+  } catch (e) {
+    console.warn('[Socket] Initialization failed:', e && e.message ? e.message : e);
+  }
 
   // Indices for performance (idempotent)
   try {
@@ -182,24 +200,21 @@ mongoose.connect(process.env.MONGO_URI, {
     console.warn('Index setup warning:', e.message);
   }
 
-  // Daily cron at 00:05 local time to snapshot previous day completed counts per shop
+  // Daily cron at 00:05 server time to snapshot previous UTC day completed counts per shop
   try {
     const FinalJob = require('./models/FinalJob');
     const NewShop = require('./models/NewShop');
     // Cron: write previous day's completedCount into each shop's embedded dailystats array
     cron.schedule('5 0 * * *', async () => {
       try {
-  const shops = await NewShop.find({}, { shop_id: 1 }).lean();
-        const prev = new Date();
-        prev.setDate(prev.getDate() - 1);
-        prev.setHours(0,0,0,0);
-        const dayStr = prev.toISOString().slice(0,10);
+        const shops = await NewShop.find({}, { shop_id: 1 }).lean();
+  const { getIstDayRangeFor } = require('./utils/ist');
+        const prev = new Date(); prev.setDate(prev.getDate() - 1);
+        const { dayStr, start, end } = getIstDayRangeFor(prev);
         for (const s of shops) {
           const sid = s.shop_id;
           if (!sid) continue;
-          const start = new Date(prev);
-          const end = new Date(prev); end.setDate(end.getDate() + 1);
-          // Count completed FinalJobs for the calendar day: prefer completed_at, fallback to createdAt
+          // Count completed FinalJobs for the calendar day in IST: prefer completed_at, fallback to createdAt
           const completed = await FinalJob.countDocuments({
             shop_id: sid,
             job_status: 'completed',
@@ -230,17 +245,18 @@ mongoose.connect(process.env.MONGO_URI, {
       }
     });
 
-      // At 00:10 every day, compute and store previous day's totalRevenue per shop
+  // At 00:10 every day, compute and store previous UTC day's totalRevenue per shop
       cron.schedule('10 0 * * *', async () => {
         try {
           const shops = await NewShop.find({}, { shop_id: 1 }).lean();
-          const end = new Date(); end.setHours(0,0,0,0); // today 00:00
-          const start = new Date(end); start.setDate(start.getDate() - 1); // yesterday 00:00
-          const dayStr = start.toISOString().slice(0,10);
+          const { getIstDayRangeFor } = require('./utils/ist');
+          const prev = new Date(); prev.setDate(prev.getDate() - 1);
+          const { dayStr, start, end } = getIstDayRangeFor(prev);
           for (const s of shops) {
             const sid = s.shop_id; if (!sid) continue;
+            // Sum revenue for completed jobs (regardless of payment_status)
             const rows = await FinalJob.aggregate([
-              { $match: { shop_id: sid, job_status: 'completed', createdAt: { $gte: start, $lt: end } } },
+              { $match: { shop_id: sid, job_status: 'completed', $or: [ { completed_at: { $gte: start, $lt: end } }, { createdAt: { $gte: start, $lt: end } } ] } },
               { $project: { amount: { $cond: [ { $isNumber: '$total_amount' }, '$total_amount', { $convert: { input: '$total_amount', to: 'double', onError: 0, onNull: 0 } } ] } } },
               { $group: { _id: null, total: { $sum: '$amount' } } }
             ]);
@@ -257,6 +273,21 @@ mongoose.connect(process.env.MONGO_URI, {
       });
   } catch (e) {
     console.warn('Cron setup warning:', e.message);
+  }
+  // Daily rollup: remove very old daily buckets to keep shop documents small
+  try {
+    const { rollupOldDailyStats } = require('./utils/rollupOldDailyStats');
+    // Run daily at 01:30 local time
+    cron.schedule('30 1 * * *', async () => {
+      try {
+        await rollupOldDailyStats({ dryRun: false });
+        console.log('[CRON][rollup] completed');
+      } catch (e) {
+        console.error('[CRON][rollup] error:', e.message || e);
+      }
+    });
+  } catch (e) {
+    console.warn('[CRON][rollup] setup warning:', e.message || e);
   }
 })
 .catch((error) => {

@@ -3,22 +3,24 @@ import { motion } from 'framer-motion';
 import { Clock, CheckCircle, Printer, DollarSign, FileText, AlertCircle, ClipboardList } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
 import RevenueGraphSection from '../../components/partner/RevenueGraphSection';
-import { apiFetch } from '../../lib/api';
+import { fetchDashboard, fetchShop } from '../../lib/api';
+import { connectSocket, disconnectSocket, LiveCounts } from '../../lib/socket';
 
 type DashboardSnapshot = {
   shopName: string;
   isOpen: boolean;
-  earningsToday: number;
-  printJobsToday: { totalCompleted: number; changePercent: string };
+  earningsToday: number; // derived from totalRevenue.daily map
+  todayJobs: number; // derived from dailystats map
   pendingJobs: number;
   printers: { online: number; total: number };
-  recentJobs: Array<{ job_number: string; customer?: string; copies?: number; total_amount?: number; job_status: string }>;
+  recentJobs: Array<{ job_number: string; customer?: any; copies?: number; total_amount?: number; job_status: string }>;
   printerList: Array<{ name: string; type?: string; status: string }>;
 };
 
 const Dashboard: React.FC = () => {
   const [shopId, setShopId] = useState<string>('');
   const [data, setData] = useState<DashboardSnapshot | null>(null);
+  const [liveCounts, setLiveCounts] = useState<LiveCounts | null>(null);
   // simple load flag if needed later
   // const [loading, setLoading] = useState<boolean>(true);
 
@@ -40,24 +42,81 @@ const Dashboard: React.FC = () => {
     setShopId(sid);
   }, []);
 
-  const fetchDashboard = async (sid: string) => {
+  const computeFromShop = (shop: any): DashboardSnapshot => {
+    // Try both IST (Asia/Kolkata) and UTC day keys so we pick whichever the server stored.
+    const istKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const utcKey = new Date().toISOString().split('T')[0];
+    const dailyRevenueMap = shop?.totalRevenue?.daily || {};
+    const dsMap = shop?.dailystats || {};
+    // Prefer IST bucket if present (matches frontend date display), otherwise fall back to UTC bucket.
+    const todayRevenue = (typeof dailyRevenueMap[istKey]?.totalRevenue === 'number')
+      ? dailyRevenueMap[istKey].totalRevenue
+      : (typeof dailyRevenueMap[utcKey]?.totalRevenue === 'number' ? dailyRevenueMap[utcKey].totalRevenue : 0);
+    const todayJobs = (typeof dsMap[istKey]?.totalJobsCompleted === 'number')
+      ? dsMap[istKey].totalJobsCompleted
+      : (typeof dsMap[utcKey]?.totalJobsCompleted === 'number' ? dsMap[utcKey].totalJobsCompleted : 0);
+    const printersArr = Array.isArray(shop.printers) ? shop.printers : [];
+    const onlinePrinters = printersArr.filter((p: any) => (p.status || '').toLowerCase() === 'online').length;
+    return {
+      shopName: shop.shopName || shop.name || '—',
+      isOpen: typeof shop.isOpen === 'boolean' ? shop.isOpen : true,
+      earningsToday: todayRevenue,
+      todayJobs,
+      pendingJobs: 0, // will be filled from dashboard snapshot fallback
+      printers: { online: onlinePrinters, total: printersArr.length },
+      recentJobs: [],
+      printerList: printersArr.map((p: any) => ({
+        name: p.agentDetected?.name || p.printerid || p.printerId || 'Unknown',
+        type: Array.isArray(p.agentDetected?.capabilities) && p.agentDetected.capabilities[0] ? (p.agentDetected.capabilities[0].type || '') : '',
+        status: p.status || 'offline'
+      }))
+    };
+  };
+
+  const fetchDashboardData = async (sid: string) => {
     try {
-  const resp = await apiFetch(`/api/shops/shop/${encodeURIComponent(sid)}/dashboard`);
-      if (!resp.ok) throw new Error('Failed to load dashboard');
-      const json = await resp.json();
-      setData(json);
+      const [shopObj, dash] = await Promise.all([
+        fetchShop(sid),
+        fetchDashboard(sid)
+      ]);
+      // Primary values derived from shop maps per spec; fallback to dashboard counts for pending/jobs/printers/recentJobs
+      const base = computeFromShop(shopObj);
+      base.pendingJobs = dash?.pendingJobs ?? base.pendingJobs;
+      base.recentJobs = Array.isArray(dash?.recentJobs) ? dash.recentJobs : base.recentJobs;
+      base.printerList = Array.isArray(dash?.printerList) ? dash.printerList : base.printerList;
+      // Use dashboard printers metrics if present (they should match but allow fallback consistency)
+      if (dash?.printers) base.printers = dash.printers;
+      // Prefer dashboard's computed earningsToday when available (server uses canonical day-key logic)
+      base.earningsToday = (typeof dash?.earningsToday === 'number') ? dash.earningsToday : base.earningsToday;
+  // Prefer dashboard's todayJobs when available (server-side canonical count derived from dailystats)
+  base.todayJobs = (typeof dash?.todayJobs === 'number') ? dash.todayJobs : base.todayJobs;
+      setData(base);
     } catch (e) {
-      console.error(e);
-    } finally {
-      // no-op for now
+      console.error('[Dashboard] fetch failed:', e);
     }
   };
 
   useEffect(() => {
     if (!shopId) return;
-    fetchDashboard(shopId);
-    const t = setInterval(() => fetchDashboard(shopId), 10000);
+    fetchDashboardData(shopId);
+    const t = setInterval(() => fetchDashboardData(shopId), 10000);
     return () => clearInterval(t);
+  }, [shopId]);
+
+  // Instant updates via Socket.IO for counts
+  useEffect(() => {
+    if (!shopId) return;
+    const socket = connectSocket(shopId);
+    const onCounts = (c: LiveCounts) => {
+      setLiveCounts(c);
+      // Refresh both shop and dashboard snapshots immediately (dashboard includes server-side computed earningsToday)
+      try { fetchDashboardData(shopId); } catch (e) { console.error('[Dashboard] socket refresh failed', e); }
+    };
+    socket.on('counts', onCounts);
+    return () => {
+      try { socket.off('counts', onCounts); } catch {}
+      disconnectSocket();
+    };
   }, [shopId]);
 
   const getStatusColor = (status: string) => {
@@ -91,7 +150,7 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white">Hi {data?.shopName || '—'}! 👋</h1>
-              <p className="text-lime-100 mt-2">Here's your dashboard overview for today</p>
+              <p className="text-lime-100 mt-2">{`Here's your dashboard overview for today (IST: ${new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })})`}</p>
             </div>
             <div className="text-right">
               <div className="bg-white/20 rounded-lg px-4 py-2">
@@ -128,7 +187,7 @@ const Dashboard: React.FC = () => {
             </div>
           </motion.div>
 
-          {/* Print Jobs Today */}
+          {/* Print Jobs Today (calendar day via NewShop.dailystats) */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -138,18 +197,13 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Print Jobs Today</p>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{data?.printJobsToday.totalCompleted ?? 0}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-2">{data?.todayJobs ?? 0}</p>
               </div>
               <div className="bg-lime-100 rounded-xl p-3">
                 <CheckCircle className="h-6 w-6 text-lime-600" />
               </div>
             </div>
-            <div className="mt-4 flex items-center">
-              <span className={`text-sm font-medium ${String(data?.printJobsToday.changePercent || '').startsWith('-') ? 'text-red-600' : 'text-green-600'}`}>
-                {data?.printJobsToday.changePercent || '+0%'}
-              </span>
-              <span className="text-sm text-gray-500 ml-2">from yesterday</span>
-            </div>
+            {/* Using calendar-day snapshot; omit rolling 24h change percent to avoid mixing metrics */}
           </motion.div>
 
           {/* Pending Jobs */}
@@ -162,7 +216,7 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Pending Jobs</p>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{data?.pendingJobs ?? 0}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-2">{(liveCounts?.pending ?? data?.pendingJobs) ?? 0}</p>
               </div>
               <div className="bg-lime-100 rounded-xl p-3">
                 <Clock className="h-6 w-6 text-lime-600" />

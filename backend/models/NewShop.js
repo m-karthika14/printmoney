@@ -175,6 +175,11 @@ const NewShopSchema = new mongoose.Schema({
     }
   },
 
+  // Lifetime counters for quick access without scanning maps
+  lifetimeJobsCompleted: { type: Number, default: 0 },
+  lifetimeRevenue: { type: Number, default: 0 }
+,
+
   pricing: {
     customDiscounts: [
       {

@@ -10,9 +10,9 @@ async function updateDailyStats(options = {}) {
   }
 
   const shops = await NewShop.find({}, { shop_id: 1, shopName: 1 }).lean();
-  const start = new Date(); start.setHours(0,0,0,0);
-  const end = new Date(start); end.setDate(end.getDate() + 1);
-  const dayStr = start.toISOString().slice(0,10);
+  // Use UTC calendar-day window for "today" (00:00Z - 24:00Z)
+  const { getIstDayRangeFor } = require('./ist');
+  const { start, end, dayStr } = getIstDayRangeFor(new Date());
 
   const results = [];
   for (const s of shops) {
@@ -31,16 +31,13 @@ async function updateDailyStats(options = {}) {
 
     if (dryRun) continue;
 
-    const updateResult = await NewShop.updateOne(
-      { shop_id: sid, 'dailystats.date': dayStr },
-      { $set: { 'dailystats.$.completedCount': completed, 'dailystats.$.createdAt': new Date() } }
+    // NewShop.dailystats is stored as a Map keyed by YYYY-MM-DD. Write directly to the map
+    // using the map key `dailystats.<dayStr>`. Use canonical property name `totalJobsCompleted` to
+    // match the schema and the frontend expectations.
+    await NewShop.updateOne(
+      { shop_id: sid },
+      { $set: { [`dailystats.${dayStr}.totalJobsCompleted`]: completed, [`dailystats.${dayStr}.createdAt`]: new Date() } }
     );
-    if (!updateResult.modifiedCount) {
-      await NewShop.updateOne(
-        { shop_id: sid },
-        { $push: { dailystats: { date: dayStr, completedCount: completed, createdAt: new Date() } } }
-      );
-    }
   }
 
   return results;

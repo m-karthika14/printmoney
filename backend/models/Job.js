@@ -2,13 +2,21 @@ const mongoose = require("mongoose");
 
 const JobSchema = new mongoose.Schema(
   {
-    customer: { type: String, required: true },
+  // Allow legacy string or newer object shape (name/email/etc.)
+  customer: { type: mongoose.Schema.Types.Mixed, required: true },
     shop: { type: mongoose.Schema.Types.ObjectId, ref: "newshops" },
     shop_id: { type: String, required: true },
-    document_urls: [{ type: String }],
-    print_options: { type: Object, default: {} },
-    total_amount: { type: Number },
-    payment_status: { type: String, default: "pending" },
+  document_urls: [{ type: String }],
+  // Full document metadata array (each item: { name, fileKey, url, mimeType, page_count, printed_pages, copies, ... })
+  documents: { type: Array },
+  // Rich print options including watermark and per-document overrides
+  print_options: { type: Object, default: {} },
+  // Optional top-level overrides present in newer payloads
+  watermark: { type: Object },
+  perDocOptions: { type: Array },
+  total_amount: { type: Number },
+  payment_status: { type: String, default: "pending" },
+  payment_info: { type: Object },
     // Printer allocation pipeline status (pending -> alloted)
     printer_status: { type: String, default: 'pending' },
   job_status: { type: String, default: 'pending' },
@@ -18,8 +26,10 @@ const JobSchema = new mongoose.Schema(
     updatedAt: { type: Date },
     queued_at: { type: Date },
     status: { type: String },
-    files_processed: { type: Number },
-    pages_printed: { type: Number },
+  files_processed: { type: Number },
+  pages_printed: { type: Number },
+  total_pages: { type: Number },
+  total_printed_pages: { type: Number },
     agent_id: { type: String },
     processing_started_at: { type: Date },
     assigned_printer: { type: String },
@@ -38,48 +48,164 @@ const JobSchema = new mongoose.Schema(
 JobSchema.index({ shop_id: 1 });
 JobSchema.index({ job_number: 1 });
 
-module.exports = mongoose.model("Job", JobSchema, "jobs");
-
-// Sync job updates to FinalJob after allotment
+// Sync limited fields to FinalJob after allotment (status + payment fields)
 JobSchema.post('save', async function(doc) {
-  // Accept both 'alloted' and 'assigned' as meaning the job was claimed/allocated
-  if ((doc.job_status === 'alloted' || doc.job_status === 'assigned') && doc.job_number) {
-    try {
-      const FinalJob = require('./FinalJob');
-      await FinalJob.findOneAndUpdate(
-        { job_number: doc.job_number },
-        {
-          customer: doc.customer,
-          shop: doc.shop,
-          shop_id: doc.shop_id,
-          document_urls: doc.document_urls,
-          print_options: doc.print_options,
-          total_amount: doc.total_amount,
-          payment_status: doc.payment_status,
-          job_status: doc.job_status,
-          collection_pin: doc.collection_pin,
-          createdAt: doc.createdAt,
-          updatedAt: doc.updatedAt,
-          queued_at: doc.queued_at,
-          status: doc.status,
-          files_processed: doc.files_processed,
-          pages_printed: doc.pages_printed,
-          agent_id: doc.agent_id,
-          processing_started_at: doc.processing_started_at,
-          assigned_printer: doc.assigned_printer,
-          printer_assigned_at: doc.printer_assigned_at,
-          current_file: doc.current_file,
-          printing_started_at: doc.printing_started_at,
-          completed_at: doc.completed_at,
-          printed_by: doc.printed_by,
-          processing_time_seconds: doc.processing_time_seconds,
-          queue_confirmed: doc.queue_confirmed
-        },
-        { new: true }
-      );
-    } catch (e) {
-      console.error('[Job model hook] sync to FinalJob failed:', e.message);
+  try {
+    if (!doc.job_number) return;
+    const FinalJob = require('./FinalJob');
+    const finalBefore = await FinalJob.findOne({ job_number: doc.job_number }).lean();
+    // Only sync if the job has been allotted (or a FinalJob already exists)
+    if (doc.printer_status !== 'alloted' && !finalBefore) return;
+  // Sync only allowed fields from Job -> FinalJob
+  const payload = { job_status: doc.job_status };
+  if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
+  if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
+  // Include watermark/perDocOptions if they were added after initial allotment
+  if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
+  if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
+    await FinalJob.findOneAndUpdate(
+      { job_number: doc.job_number },
+      { $set: payload },
+      { upsert: false, new: true, strict: false }
+    );
+
+    // If this update transitions the job into completed and FinalJob was not completed before,
+    // increment NewShop daily + lifetime counters and revenue (mirrors logic in FinalJob route)
+    if (doc.job_status === 'completed' && (!finalBefore || finalBefore.job_status !== 'completed')) {
+      try {
+        const NewShop = require('./NewShop');
+  const { getIstDayKey } = require('../utils/ist');
+  // Attribute daily counters to the actual completion timestamp (UTC).
+  const completedDate = doc.completed_at || doc.updatedAt || doc.createdAt || new Date();
+  const dayStr = getIstDayKey(completedDate);
+  const sid = doc.shop_id || finalBefore?.shop_id;
+        if (sid) {
+          const amount = (typeof doc.total_amount === 'number' && !Number.isNaN(doc.total_amount))
+            ? Number(doc.total_amount)
+            : (typeof finalBefore?.total_amount === 'number' ? Number(finalBefore.total_amount) : 0);
+          const incOps = { [`dailystats.${dayStr}.totalJobsCompleted`]: 1, lifetimeJobsCompleted: 1 };
+          const setOps = { [`dailystats.${dayStr}.createdAt`]: new Date() };
+          if (amount && amount > 0) {
+            incOps[`totalRevenue.daily.${dayStr}.totalRevenue`] = amount;
+            incOps.lifetimeRevenue = amount;
+            setOps[`totalRevenue.daily.${dayStr}.createdAt`] = new Date();
+          }
+          await NewShop.updateOne(
+            { shop_id: sid },
+            { $inc: incOps, $set: setOps }
+          );
+        }
+      } catch (e) {
+        console.error('[Job hook] counters increment failed:', e && e.message ? e.message : e);
+      }
     }
+  } catch (e) {
+    console.error('[Job model hook] dynamic sync to FinalJob failed:', e.message);
+  }
+});
+
+// Also sync after findOneAndUpdate (when callers use it instead of save())
+JobSchema.post('findOneAndUpdate', async function(doc) {
+  try {
+    if (!doc || !doc.job_number) return;
+    const FinalJob = require('./FinalJob');
+    const finalBefore = await FinalJob.findOne({ job_number: doc.job_number }).lean();
+    if (doc.printer_status !== 'alloted' && !finalBefore) return;
+  // Sync only allowed fields
+  const payload = { job_status: doc.job_status };
+  if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
+  if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
+  if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
+  if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
+    await FinalJob.findOneAndUpdate(
+      { job_number: doc.job_number },
+      { $set: payload },
+      { upsert: false, new: true, strict: false }
+    );
+
+    if (doc.job_status === 'completed' && (!finalBefore || finalBefore.job_status !== 'completed')) {
+      try {
+        const NewShop = require('./NewShop');
+  const { getIstDayKey } = require('../utils/ist');
+  const completedDate = doc.completed_at || doc.updatedAt || doc.createdAt || new Date();
+  const dayStr = getIstDayKey(completedDate);
+  const sid = doc.shop_id || finalBefore?.shop_id;
+        if (sid) {
+          const amount = (typeof doc.total_amount === 'number' && !Number.isNaN(doc.total_amount))
+            ? Number(doc.total_amount)
+            : (typeof finalBefore?.total_amount === 'number' ? Number(finalBefore.total_amount) : 0);
+          const incOps = { [`dailystats.${dayStr}.totalJobsCompleted`]: 1, lifetimeJobsCompleted: 1 };
+          const setOps = { [`dailystats.${dayStr}.createdAt`]: new Date() };
+          if (amount && amount > 0) {
+            incOps[`totalRevenue.daily.${dayStr}.totalRevenue`] = amount;
+            incOps.lifetimeRevenue = amount;
+            setOps[`totalRevenue.daily.${dayStr}.createdAt`] = new Date();
+          }
+          await NewShop.updateOne(
+            { shop_id: sid },
+            { $inc: incOps, $set: setOps }
+          );
+        }
+      } catch (e) {
+        console.error('[Job hook findOneAndUpdate] counters increment failed:', e && e.message ? e.message : e);
+      }
+    }
+  } catch (e) {
+    console.error('[Job model hook] dynamic sync (findOneAndUpdate) failed:', e.message);
+  }
+});
+
+// Also sync after updateOne (query middleware)
+JobSchema.post('updateOne', { document: false, query: true }, async function(result) {
+  try {
+    const q = this.getQuery() || {};
+    if (!q.job_number) return;
+    const doc = await this.model.findOne({ job_number: q.job_number });
+    if (!doc) return;
+    const FinalJob = require('./FinalJob');
+    const finalBefore = await FinalJob.findOne({ job_number: doc.job_number }).lean();
+    if (doc.printer_status !== 'alloted' && !finalBefore) return;
+  // Sync only allowed fields
+  const payload = { job_status: doc.job_status };
+  if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
+  if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
+  if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
+  if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
+    await FinalJob.findOneAndUpdate(
+      { job_number: doc.job_number },
+      { $set: payload },
+      { upsert: false, new: true, strict: false }
+    );
+
+    if (doc.job_status === 'completed' && (!finalBefore || finalBefore.job_status !== 'completed')) {
+      try {
+        const NewShop = require('./NewShop');
+  const { getIstDayKey } = require('../utils/ist');
+  const completedDate = doc.completed_at || doc.updatedAt || doc.createdAt || new Date();
+  const dayStr = getIstDayKey(completedDate);
+  const sid = doc.shop_id || finalBefore?.shop_id;
+        if (sid) {
+          const amount = (typeof doc.total_amount === 'number' && !Number.isNaN(doc.total_amount))
+            ? Number(doc.total_amount)
+            : (typeof finalBefore?.total_amount === 'number' ? Number(finalBefore.total_amount) : 0);
+          const incOps = { [`dailystats.${dayStr}.totalJobsCompleted`]: 1, lifetimeJobsCompleted: 1 };
+          const setOps = { [`dailystats.${dayStr}.createdAt`]: new Date() };
+          if (amount && amount > 0) {
+            incOps[`totalRevenue.daily.${dayStr}.totalRevenue`] = amount;
+            incOps.lifetimeRevenue = amount;
+            setOps[`totalRevenue.daily.${dayStr}.createdAt`] = new Date();
+          }
+          await NewShop.updateOne(
+            { shop_id: sid },
+            { $inc: incOps, $set: setOps }
+          );
+        }
+      } catch (e) {
+        console.error('[Job hook updateOne] counters increment failed:', e && e.message ? e.message : e);
+      }
+    }
+  } catch (e) {
+    console.error('[Job model hook] dynamic sync (updateOne) failed:', e.message);
   }
 });
 
