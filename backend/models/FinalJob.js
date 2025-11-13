@@ -16,7 +16,7 @@ const FinalJobSchema = new mongoose.Schema({
   perDocumentWatermarks: { type: Array },
   job_status: {
     type: String,
-    enum: ['pending', 'printing', 'completed'],
+    enum: ['pending', 'printing', 'completed', 'failed', 'partially_failed'],
     default: 'pending'
   },
   // Allocation status on the printer pipeline
@@ -32,6 +32,14 @@ const FinalJobSchema = new mongoose.Schema({
   printerid: { type: String },
   // Final effective printer configuration (agentDetected or manualOverride based on useAgentValues)
   printer_config: { type: Object },
+  // Mixed-job handling: flag + per-section assignment details
+  isMixed: { type: Boolean, default: false },
+  subJobs: { type: Object, default: null },
+  // Max retries allowed (watchdog will use this)
+  maxRetries: { type: Number, default: 2 },
+  // Watchdog tracking
+  lastHeartbeat: { type: Date },
+  stuckSince: { type: Date },
   agent_id: { type: String },
   status: { type: String },
   files_processed: { type: Number },
@@ -43,8 +51,12 @@ const FinalJobSchema = new mongoose.Schema({
   manualTriggered: { type: Boolean, default: false },
   autoPrintMode: { type: Boolean },
   // Total pages in the job and how many pages actually printed
-  totalpages: { type: Number, default: 0 },
-  totalpagesprinted: { type: Number, default: 0 },
+  total_pages: { type: Number, default: 0 },
+total_printed_pages: { type: Number, default: 0 },
+
+  
+  // How many automatic retry attempts have been made by the watchdog
+  retryCount: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { strict: false });

@@ -145,6 +145,17 @@ mongoose.connect(process.env.MONGO_URI, {
   setInterval(() => {
     scheduledSync().catch(err => console.error('[PRINTER-SYNC] Interval error:', err));
   }, 20000);
+  // Start presence watchdog: mark printers offline when heartbeats are stale (> 1 minute)
+  try {
+    const { presenceWatchdog } = require('./utils/printerSync');
+    // Run every 30 seconds
+    setInterval(() => {
+      presenceWatchdog({ staleAfterMs: 60 * 1000 }).catch(err => console.error('[PRESENCE-WATCHDOG] interval error:', err));
+    }, 30000);
+    console.log('[PRESENCE-WATCHDOG] scheduled every 30000 ms (stale threshold 60000 ms)');
+  } catch (e) {
+    console.warn('[PRESENCE-WATCHDOG] setup failed:', e && e.message ? e.message : e);
+  }
   // Start job poller for finalJobs assignment (every 15 seconds)
   require('./jobPoller');
 

@@ -54,20 +54,44 @@ JobSchema.post('save', async function(doc) {
     if (!doc.job_number) return;
     const FinalJob = require('./FinalJob');
     const finalBefore = await FinalJob.findOne({ job_number: doc.job_number }).lean();
-    // Only sync if the job has been allotted (or a FinalJob already exists)
+    // If job is not allotted and there's no FinalJob, nothing to do
     if (doc.printer_status !== 'alloted' && !finalBefore) return;
-  // Sync only allowed fields from Job -> FinalJob
-  const payload = { job_status: doc.job_status };
-  if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
-  if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
-  // Include watermark/perDocOptions if they were added after initial allotment
-  if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
-  if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
-    await FinalJob.findOneAndUpdate(
-      { job_number: doc.job_number },
-      { $set: payload },
-      { upsert: false, new: true, strict: false }
-    );
+
+    const { buildFinalFromJob } = require('../utils/copyJobToFinal');
+    // If there is already a FinalJob, just sync limited fields; otherwise create/upsert a full FinalJob
+    if (finalBefore) {
+      // Sync only allowed fields from Job -> FinalJob
+      const payload = { job_status: doc.job_status };
+      if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
+      if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
+      if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
+      if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
+      await FinalJob.findOneAndUpdate(
+        { job_number: doc.job_number },
+        { $set: payload },
+        { upsert: false, new: true, strict: false }
+      );
+    } else if (doc.printer_status === 'alloted') {
+      // Create full FinalJob automatically when Job becomes allotted
+      try {
+        const sourceDoc = doc.toObject ? doc.toObject() : JSON.parse(JSON.stringify(doc));
+        const finalBase = buildFinalFromJob(sourceDoc, null);
+        // Merge allocation-specific fields from Job into FinalJob
+        Object.assign(finalBase, {
+          shop_id: doc.shop_id,
+          printerid: doc.printerid || doc.printer_id || doc.assigned_printer || null,
+          assigned_printer: doc.assigned_printer || null,
+          printer_status: 'alloted',
+          job_status: doc.job_status || 'pending',
+          autoPrintMode: false,
+          manualTriggered: false,
+          printer_assigned_at: doc.printer_assigned_at || doc.queued_at || new Date()
+        });
+        await FinalJob.findOneAndUpdate({ job_number: doc.job_number }, { $set: finalBase }, { upsert: true, new: true, strict: false });
+      } catch (e) {
+        console.error('[Job hook] auto-create FinalJob failed:', e && e.message ? e.message : e);
+      }
+    }
 
     // If this update transitions the job into completed and FinalJob was not completed before,
     // increment NewShop daily + lifetime counters and revenue (mirrors logic in FinalJob route)
@@ -111,17 +135,39 @@ JobSchema.post('findOneAndUpdate', async function(doc) {
     const FinalJob = require('./FinalJob');
     const finalBefore = await FinalJob.findOne({ job_number: doc.job_number }).lean();
     if (doc.printer_status !== 'alloted' && !finalBefore) return;
-  // Sync only allowed fields
-  const payload = { job_status: doc.job_status };
-  if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
-  if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
-  if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
-  if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
-    await FinalJob.findOneAndUpdate(
-      { job_number: doc.job_number },
-      { $set: payload },
-      { upsert: false, new: true, strict: false }
-    );
+    const { buildFinalFromJob } = require('../utils/copyJobToFinal');
+    if (finalBefore) {
+      // Sync only allowed fields
+      const payload = { job_status: doc.job_status };
+      if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
+      if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
+      if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
+      if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
+      await FinalJob.findOneAndUpdate(
+        { job_number: doc.job_number },
+        { $set: payload },
+        { upsert: false, new: true, strict: false }
+      );
+    } else if (doc.printer_status === 'alloted') {
+      // Auto-create FinalJob on allotment
+      try {
+        const sourceDoc = doc.toObject ? doc.toObject() : JSON.parse(JSON.stringify(doc));
+        const finalBase = buildFinalFromJob(sourceDoc, null);
+        Object.assign(finalBase, {
+          shop_id: doc.shop_id,
+          printerid: doc.printerid || doc.printer_id || doc.assigned_printer || null,
+          assigned_printer: doc.assigned_printer || null,
+          printer_status: 'alloted',
+          job_status: doc.job_status || 'pending',
+          autoPrintMode: false,
+          manualTriggered: false,
+          printer_assigned_at: doc.printer_assigned_at || doc.queued_at || new Date()
+        });
+        await FinalJob.findOneAndUpdate({ job_number: doc.job_number }, { $set: finalBase }, { upsert: true, new: true, strict: false });
+      } catch (e) {
+        console.error('[Job hook findOneAndUpdate] auto-create FinalJob failed:', e && e.message ? e.message : e);
+      }
+    }
 
     if (doc.job_status === 'completed' && (!finalBefore || finalBefore.job_status !== 'completed')) {
       try {
@@ -165,17 +211,39 @@ JobSchema.post('updateOne', { document: false, query: true }, async function(res
     const FinalJob = require('./FinalJob');
     const finalBefore = await FinalJob.findOne({ job_number: doc.job_number }).lean();
     if (doc.printer_status !== 'alloted' && !finalBefore) return;
-  // Sync only allowed fields
-  const payload = { job_status: doc.job_status };
-  if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
-  if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
-  if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
-  if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
-    await FinalJob.findOneAndUpdate(
-      { job_number: doc.job_number },
-      { $set: payload },
-      { upsert: false, new: true, strict: false }
-    );
+    const { buildFinalFromJob } = require('../utils/copyJobToFinal');
+    if (finalBefore) {
+      // Sync only allowed fields
+      const payload = { job_status: doc.job_status };
+      if (typeof doc.payment_status !== 'undefined') payload.payment_status = doc.payment_status;
+      if (typeof doc.payment_info !== 'undefined') payload.payment_info = doc.payment_info;
+      if (typeof doc.watermark !== 'undefined') payload.watermark = doc.watermark;
+      if (typeof doc.perDocOptions !== 'undefined') payload.perDocOptions = doc.perDocOptions;
+      await FinalJob.findOneAndUpdate(
+        { job_number: doc.job_number },
+        { $set: payload },
+        { upsert: false, new: true, strict: false }
+      );
+    } else if (doc.printer_status === 'alloted') {
+      // Auto-create FinalJob on allotment
+      try {
+        const sourceDoc = doc.toObject ? doc.toObject() : JSON.parse(JSON.stringify(doc));
+        const finalBase = buildFinalFromJob(sourceDoc, null);
+        Object.assign(finalBase, {
+          shop_id: doc.shop_id,
+          printerid: doc.printerid || doc.printer_id || doc.assigned_printer || null,
+          assigned_printer: doc.assigned_printer || null,
+          printer_status: 'alloted',
+          job_status: doc.job_status || 'pending',
+          autoPrintMode: false,
+          manualTriggered: false,
+          printer_assigned_at: doc.printer_assigned_at || doc.queued_at || new Date()
+        });
+        await FinalJob.findOneAndUpdate({ job_number: doc.job_number }, { $set: finalBase }, { upsert: true, new: true, strict: false });
+      } catch (e) {
+        console.error('[Job hook updateOne] auto-create FinalJob failed:', e && e.message ? e.message : e);
+      }
+    }
 
     if (doc.job_status === 'completed' && (!finalBefore || finalBefore.job_status !== 'completed')) {
       try {

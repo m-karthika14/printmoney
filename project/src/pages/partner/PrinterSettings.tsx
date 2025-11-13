@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Printer, CreditCard as Edit3, Save, Info, Wifi, WifiOff, Monitor, Palette, FileText, Check, X, RefreshCw } from 'lucide-react';
+import { Printer, CreditCard as Edit3, Save, Info, Wifi, WifiOff, Monitor, Palette, FileText, Check, X } from 'lucide-react';
 import PartnerLayout from '../../components/partner/PartnerLayout';
 import axios from 'axios';
 import { API_BASE } from '../../lib/api';
+import { connectSocket, disconnectSocket } from '../../lib/socket';
  
 // Resolve canonical shop id from query/localStorage (match logic used elsewhere)
 const resolveShopId = (): string => {
@@ -49,6 +50,44 @@ const normalizeCapabilities = (capAny: any) => {
   return { type, duplex, paperSizes };
 };
 
+// Map various incoming type strings to internal tokens used by the select
+const mapTypeToToken = (typeIn: any) => {
+  const raw = String(typeIn || '').trim();
+  const low = raw.toLowerCase();
+  // Match combined formats robustly
+  const isColorBw = /color\W*bw|bw\W*color|color\s*\+\s*bw|b\/w/i.test(raw);
+  if (isColorBw) return 'color+bw';
+  if (low.includes('color')) return 'color';
+  return 'bw';
+};
+
+// Canonical display mapping for paper sizes. Keys are normalized (lowercase);
+// values are the friendly labels shown in the UI. Falls back to uppercasing.
+const paperSizeDisplayMap: Record<string, string> = {
+  'a0': 'A0',
+  'a1': 'A1',
+  'a2': 'A2',
+  'a3': 'A3',
+  'a4': 'A4',
+  'a5': 'A5',
+  'letter': 'Letter',
+  'legal': 'Legal',
+  'folio': 'Folio'
+};
+
+const displayPaperSize = (raw?: string) => {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  const low = s.toLowerCase();
+  if (paperSizeDisplayMap[low]) return paperSizeDisplayMap[low];
+  // If it's already in a nice form (mixed/upper), try a sensible fallback
+  if (/^[A-Za-z0-9\-\s]+$/.test(s)) return s.length <= 4 ? s.toUpperCase() : (s.charAt(0).toUpperCase() + s.slice(1));
+  return s;
+};
+
+  // Lightweight type for printers used in this file. Kept as `any` to match backend shape.
+  type PrinterType = any;
+
   const [printers, setPrinters] = useState<PrinterType[]>([]);
   const [shopId, setShopId] = useState<string>('');
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterType | null>(null);
@@ -72,8 +111,6 @@ const normalizeCapabilities = (capAny: any) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 2200);
   };
-
-  type PrinterType = any; // Using backend shape directly
 
   // Using backend shapes directly
 
@@ -162,12 +199,47 @@ const normalizeCapabilities = (capAny: any) => {
     };
 
     fetchPrinters();
+    // Poll as a fallback, but also subscribe to socket events for near-instant updates
     const interval = setInterval(fetchPrinters, 5000);
-    return () => { mounted = false; clearInterval(interval); };
+    let sock: any = null;
+    try {
+      sock = connectSocket(shopId);
+      // When counts or finaljob updates happen, refresh printers immediately
+  sock.on('counts', fetchPrinters);
+  sock.on('finaljob:update', fetchPrinters);
+  sock.on('printers:update', fetchPrinters);
+    } catch (e) {
+      // ignore socket connection errors — polling remains as fallback
+    }
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      try {
+        if (sock) {
+          sock.off('counts', fetchPrinters);
+          sock.off('finaljob:update', fetchPrinters);
+          sock.off('printers:update', fetchPrinters);
+        }
+        disconnectSocket();
+      } catch (e) {}
+    };
   }, [shopId]);
 
   // Helper: resolve final values for display (manualOverride takes precedence per-field)
     const getFinalPrinterValues = (p: any) => {
+      // Prefer backend's computed finalValues when available (authoritative)
+      if (p?.finalValues) {
+        return {
+          name: p.finalValues.name,
+          type: p.finalValues.type,
+          duplex: !!p.finalValues.duplex,
+          paperSizes: Array.isArray(p.finalValues.paperSizes) ? p.finalValues.paperSizes : [],
+          badgeStatus: p.finalValues.manualStatus || (p?.manualStatus === 'on' ? 'online' : 'offline'),
+          cardStatus: p.finalValues.status || (p?.status === 'online' ? 'online' : 'offline'),
+          isEnabled: p?.manualStatus === 'on',
+        };
+      }
+
       const agentCap = normalizeCapabilities(p?.agentDetected?.capabilities);
       const manualCap = normalizeCapabilities(p?.manualOverride?.capabilities);
 
@@ -215,7 +287,7 @@ const normalizeCapabilities = (capAny: any) => {
         const sizes = Array.isArray(r.data) ? r.data : (Array.isArray(r.data?.sizes) ? r.data.sizes : []);
         const DEFAULTS = ['A3','Letter'];
         const merged = Array.from(new Set([...(sizes || []), ...DEFAULTS]));
-        if (mounted) setAllPaperSizes(merged);
+  if (mounted) setAllPaperSizes(merged.map((s: any) => displayPaperSize(String(s || ''))));
         if (sizes.length) return; // success
       } catch (e) {}
       // Fallback to union of current printers
@@ -225,7 +297,7 @@ const normalizeCapabilities = (capAny: any) => {
       ])));
       const DEFAULTS = ['A3','Letter'];
       const merged = Array.from(new Set([...(union || []), ...DEFAULTS]));
-      if (mounted) setAllPaperSizes(merged);
+      if (mounted) setAllPaperSizes(merged.map((s: any) => displayPaperSize(String(s || ''))));
     };
     load();
     const t = setInterval(load, 15000);
@@ -283,14 +355,17 @@ const normalizeCapabilities = (capAny: any) => {
     const hasManualDuplex = typeof printer?.manualOverride?.capabilities?.[0]?.duplex !== 'undefined';
     const hasManualSizes = Array.isArray(manualCap.paperSizes) && manualCap.paperSizes.length > 0;
     const startName = (printer?.manualOverride?.name) || (printer?.agentDetected?.name) || (printer as any)?.printerid || '';
-  const startTypeStr = hasManualType ? manualCap.type : (agentCap.type || 'B/W');
-  // Map incoming canonical types to internal tokens: 'color', 'bw', 'color+bw'
-  const sType = String(startTypeStr || '').toLowerCase();
-  let startTypeToken = 'bw';
-  if (sType.includes('color+bw') || /color\W*bw/i.test(startTypeStr)) startTypeToken = 'color+bw';
-  else if (sType.includes('color')) startTypeToken = 'color';
+    // Prefer server-provided finalValues.type when available (authoritative)
+    let startTypeToken = 'bw';
+    if (printer?.finalValues?.type) {
+      startTypeToken = mapTypeToToken(printer.finalValues.type);
+    } else {
+      const startTypeStr = hasManualType ? manualCap.type : (agentCap.type || 'B/W');
+      startTypeToken = mapTypeToToken(startTypeStr);
+    }
     const startDuplex = hasManualDuplex ? !!manualCap.duplex : !!agentCap.duplex;
-    const startSizes = hasManualSizes ? manualCap.paperSizes : (agentCap.paperSizes || []);
+  const rawStartSizes = hasManualSizes ? manualCap.paperSizes : (agentCap.paperSizes || []);
+  const startSizes = Array.isArray(rawStartSizes) ? rawStartSizes.map((s: any) => displayPaperSize(s)) : [];
 
     const final = getFinalPrinterValues(printer);
     setOriginalFinalValues(final);
@@ -326,22 +401,38 @@ const normalizeCapabilities = (capAny: any) => {
       if (changedFields && changedFields.has('notes')) {
         payload.manualOverride.notes = editForm.notes || '';
       }
-      // Capabilities
+      // Capabilities: include when changed or when final differs from original
       const capObj: any = {};
+      const typeChanged = (changedFields && changedFields.has('type')) || (originalFinalValues && (String(originalFinalValues.type || '').toLowerCase() !== String(editForm.capabilities.type || '').toLowerCase()));
+      const duplexChanged = (changedFields && changedFields.has('duplex')) || (originalFinalValues && !!originalFinalValues.duplex !== !!editForm.capabilities.duplex);
+      const sizesChanged = (changedFields && changedFields.has('paperSizes')) || (originalFinalValues && Array.isArray(originalFinalValues.paperSizes) && originalFinalValues.paperSizes.join(',') !== (editForm.capabilities.paperSizes || []).join(','));
       // Type: map token to canonical (support color+bw)
-      if (changedFields && changedFields.has('type')) {
+      if (typeChanged) {
         if (editForm.capabilities.type === 'color') capObj.type = 'Color';
         else if (editForm.capabilities.type === 'color+bw') capObj.type = 'Color+B/W';
         else capObj.type = 'B/W';
       }
-      if (changedFields && changedFields.has('duplex')) {
+      if (duplexChanged) {
         capObj.duplex = !!editForm.capabilities.duplex;
       }
-      if (changedFields && changedFields.has('paperSizes')) {
-        capObj.paperSizes = editForm.capabilities.paperSizes || [];
+      if (sizesChanged) {
+        // Normalize paper sizes to avoid case mismatches: trim + toLowerCase + dedupe
+        const rawSizes = editForm.capabilities.paperSizes || [];
+        const cleaned = Array.isArray(rawSizes)
+          ? Array.from(new Set(rawSizes.map(s => String(s || '').trim()).filter(s => s.length > 0).map(s => s.toLowerCase())))
+          : [];
+        capObj.paperSizes = cleaned;
       }
       if (Object.keys(capObj).length > 0) {
         payload.manualOverride.capabilities = [capObj];
+      }
+      // If we're sending any manual override fields, switch the printer to use manual values
+      // unless the user explicitly set useAgentValues. This ensures allocations use the override.
+      if (!payload.useAgentValues) {
+        // If there is any manual override being sent, set useAgentValues=false so server uses manualOverride
+        if (payload.manualOverride && (payload.manualOverride.capabilities || payload.manualOverride.name || typeof payload.manualOverride.notes !== 'undefined')) {
+          payload.manualOverride.useAgentValues = false;
+        }
       }
       // If no fields changed, keep modal open and inform user
       if (!payload.manualOverride.name && !payload.manualOverride.capabilities && typeof payload.manualOverride.notes === 'undefined') {
@@ -372,16 +463,33 @@ const normalizeCapabilities = (capAny: any) => {
 
   // refresh handled inline where needed
 
-  // Helper to format timestamps nicely
+  // Helper to format timestamps to date + time only (no timezone conversion)
+  // Uses the timestamp's UTC components so the original stored instant is shown
+  // without converting into the client's local timezone.
   const formatTime = (timestamp?: string | Date) => {
-    if (!timestamp) return "N/A";
-    const date = new Date(timestamp);
-    return date.toLocaleString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    if (!timestamp) return 'N/A';
+    // Coerce into a Date where possible
+    let d: Date;
+    if (typeof timestamp === 'string') {
+      d = new Date(timestamp);
+    } else if (timestamp instanceof Date) {
+      d = timestamp;
+    } else {
+      d = new Date(String(timestamp));
+    }
+    if (isNaN(d.getTime())) return String(timestamp);
+
+    // Extract UTC components to avoid timezone conversion
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const month = monthNames[d.getUTCMonth()];
+    let hours = d.getUTCHours();
+    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+    const hourStr = String(hours).padStart(2, '0');
+    return `${day} ${month}, ${hourStr}:${minutes} ${ampm}`;
   };
 
   // Precompute agent section values for modal to avoid JSX IIFE and ensure a single parent node
@@ -424,15 +532,15 @@ const normalizeCapabilities = (capAny: any) => {
                 // Resolve final values per-field (manualOverride takes precedence)
                 const final = getFinalPrinterValues(printer);
                 const displayName = final.name || printer.printerid || 'Printer';
-                const colorMode = (final.type === 'Color') ? 'color' : (final.type === 'Color+B/W' ? 'color+bw' : 'bw');
-                const capabilities = {
-                  // Treat Color+B/W as having color capability as well
-                  colorSupport: final.type === 'Color' || final.type === 'Color+B/W',
-                  colorMode,
-                  duplexSupport: !!final.duplex,
-                  paperSizes: final.paperSizes || [],
-                  maxCopies: 0,
-                };
+                // Finalized capability values (used for badges) - explicit per-field precedence
+                const finalTypeStr = String(final.type || '').toLowerCase();
+                // Detect Color+B/W robustly (accepts 'Color+B/W', 'color + bw', 'colorbw', etc.)
+                const isColorBw = /color\W*bw|bw\W*color|color\s*\+\s*bw|b\/w/i.test(String(final.type || ''));
+                const finalTypeToken = isColorBw ? 'color+bw' : (finalTypeStr.includes('color') ? 'color' : 'bw');
+                const finalColorSupport = finalTypeToken === 'color' || finalTypeToken === 'color+bw';
+                const finalDuplexSupport = !!final.duplex;
+                const finalPaperSizes = final.paperSizes || [];
+              // debug logging removed
               // Use capabilities.duplexSupport, capabilities.paperSizes, etc. with safe checks
               return (
                 <motion.div
@@ -499,27 +607,27 @@ const normalizeCapabilities = (capAny: any) => {
                     {/* Capability Badges */}
                     <div className="flex flex-wrap gap-2 mb-4">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                        capabilities.colorSupport 
+                        finalColorSupport 
                           ? 'bg-purple-100 text-purple-800' 
                           : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {capabilities.colorSupport ? (
+                        {finalColorSupport ? (
                           <Palette className="h-3 w-3 mr-1" />
                         ) : (
                           <Monitor className="h-3 w-3 mr-1" />
                         )}
-                        {capabilities.colorSupport ? 'Color' : 'B/W'}
+                        {finalTypeToken === 'color+bw' ? 'Color+B/W' : (finalTypeToken === 'color' ? 'Color' : 'B/W')}
                       </span>
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                        capabilities.duplexSupport 
+                        finalDuplexSupport 
                           ? 'bg-blue-100 text-blue-800' 
                           : 'bg-gray-100 text-gray-800'
                       }`}>
                         <FileText className="h-3 w-3 mr-1" />
-                        {capabilities.duplexSupport ? 'Double Side' : 'Single-side'}
+                        {finalDuplexSupport ? 'Double Side' : 'Single-side'}
                       </span>
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                        {(capabilities.paperSizes || []).join(', ')}
+                        {finalPaperSizes.map(displayPaperSize).join(', ')}
                       </span>
                     </div>
                     {/* Printer Status Indicator */}
@@ -536,7 +644,7 @@ const normalizeCapabilities = (capAny: any) => {
                     </div>
                     {/* Metadata */}
                     <div className="text-xs text-gray-500 space-y-1 p-3 bg-gray-50/50 rounded-lg backdrop-blur-sm">
-                      <div>Last Update: {formatTime(printer.lastUpdate)}</div>
+                      <div>Last Update: {formatTime(printer.lastUpdate || printer.last_update || printer.updated_at || printer.updatedAt)}</div>
                     </div>
                     {debugMode && (
                       <div className="mt-3 p-3 bg-gray-100 rounded text-xs text-gray-800">
@@ -618,29 +726,29 @@ const normalizeCapabilities = (capAny: any) => {
                       </div>
                       <div className="space-y-5">
                                             <div>
-                                              <label className="block text-sm font-medium text-gray-700 mb-1.5">Printer Name</label>
-                                              <div className="relative">
-                                                <input
-                                                  type="text"
-                                                  value={editForm.name}
-                                                  onChange={(e) => {
-                                                    setEditForm({ ...editForm, name: e.target.value });
-                                                    setChangedFields(prev => new Set(Array.from(prev).concat(['name'])));
-                                                  }}
-                                                  className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-                                                  readOnly={!isEditing}
-                                                />
-                                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                                  <Printer className="h-5 w-5 text-gray-400" />
+                                                <label className={`block text-sm font-medium ${isEditing ? 'text-gray-700' : 'text-gray-400'} mb-1.5`}>Printer Name</label>
+                                                <div className="relative">
+                                                  <input
+                                                    type="text"
+                                                    value={editForm.name}
+                                                    onChange={(e) => {
+                                                      setEditForm({ ...editForm, name: e.target.value });
+                                                      setChangedFields(prev => new Set(Array.from(prev).concat(['name'])));
+                                                    }}
+                                                    className={`w-full px-4 py-3 pl-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm ${isEditing ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-200 bg-gray-50 text-gray-400'}`}
+                                                    readOnly={!isEditing}
+                                                  />
+                                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                    <Printer className={`h-5 w-5 ${isEditing ? 'text-gray-400' : 'text-gray-300'}`} />
+                                                  </div>
                                                 </div>
-                                              </div>
-                                              <p className="text-xs text-blue-600 mt-1.5 flex items-center">
-                                                <Info className="h-3 w-3 mr-1" />
-                                                Using agent-detected value
-                                              </p>
+                                                <p className={`text-xs ${isEditing ? 'text-blue-600' : 'text-gray-400'} mt-1.5 flex items-center`}>
+                                                  <Info className={`h-3 w-3 mr-1 ${isEditing ? '' : 'text-gray-400'}`} />
+                                                  Using agent-detected value
+                                                </p>
                                             </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Capability Type</label>
+                            <label className={`block text-sm font-medium ${isEditing ? 'text-gray-700' : 'text-gray-400'} mb-1.5`}>Capability Type</label>
                           <div className="relative">
                             <select
                               value={editForm.capabilities.type}
@@ -655,7 +763,7 @@ const normalizeCapabilities = (capAny: any) => {
                                 });
                                 setChangedFields(prev => new Set(Array.from(prev).concat(['type'])));
                               }}
-                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm appearance-none"
+                                className={`w-full px-4 py-3 border rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm appearance-none ${isEditing ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-200 bg-gray-50 text-gray-400'}`}
                               disabled={!isEditing}
                             >
                               <option value="bw" className="bg-white text-gray-700 py-2 hover:bg-gray-100">B/W</option>
@@ -672,25 +780,11 @@ const normalizeCapabilities = (capAny: any) => {
                             )}
                           </div>
                         </div>
+                        {/* Notes removed by request */}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes</label>
-                          <div>
-                            <textarea
-                              value={editForm.notes}
-                              onChange={(e) => {
-                                setEditForm({ ...editForm, notes: e.target.value });
-                                setChangedFields(prev => new Set(Array.from(prev).concat(['notes'])));
-                              }}
-                              readOnly={!isEditing}
-                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-                              rows={3}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Duplex Printing</label>
-                          <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-sm">
-                            <label className="flex items-center space-x-3 cursor-pointer">
+                          <label className={`block text-sm font-medium ${isEditing ? 'text-gray-700' : 'text-gray-400'} mb-1.5`}>Duplex Printing</label>
+                          <div className={`p-3 rounded-lg border shadow-sm ${isEditing ? 'bg-gray-50 border-gray-200' : 'bg-gray-50 border-gray-100'}`}>
+                            <label className={`flex items-center space-x-3 ${isEditing ? 'cursor-pointer' : 'cursor-default'}`}>
                               <div className="relative">
                                 <input
                                   type="checkbox"
@@ -708,24 +802,24 @@ const normalizeCapabilities = (capAny: any) => {
                                   className="opacity-0 absolute h-6 w-6"
                                   disabled={!isEditing}
                                 />
-                                <div className={`border-2 rounded w-6 h-6 flex flex-shrink-0 justify-center items-center mr-2 ${editForm.capabilities.duplex ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}>
-                                  {editForm.capabilities.duplex && <Check className="h-4 w-4 text-white" />}
+                                <div className={`border-2 rounded w-6 h-6 flex flex-shrink-0 justify-center items-center mr-2 ${editForm.capabilities.duplex ? 'bg-blue-500 border-blue-500' : (isEditing ? 'border-gray-300' : 'border-gray-200 bg-gray-50')}`}>
+                                  {editForm.capabilities.duplex && <Check className={`${isEditing ? 'h-4 w-4 text-white' : 'h-4 w-4 text-gray-300'}`} />}
                                 </div>
                               </div>
                               <div>
-                                <span className="text-sm text-gray-700 font-medium">Supports double-sided printing</span>
-                                <p className="text-xs text-gray-500 mt-0.5">Allows printing on both sides of paper</p>
+                                <span className={`text-sm ${isEditing ? 'text-gray-700' : 'text-gray-400'} font-medium`}>Supports double-sided printing</span>
+                                <p className={`text-xs ${isEditing ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>Allows printing on both sides of paper</p>
                               </div>
                             </label>
                           </div>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Paper Sizes</label>
+                          <label className={`block text-sm font-medium ${isEditing ? 'text-gray-700' : 'text-gray-400'} mb-1.5`}>Paper Sizes</label>
                           <div className="relative">
                             <div className="flex items-center mb-2">
                               <div className="relative w-full">
                                 <select
-                                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm appearance-none"
+                                  className={`w-full px-4 py-3 border rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm appearance-none ${isEditing ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-200 bg-gray-50 text-gray-400'}`}
                                   value=""
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -745,9 +839,9 @@ const normalizeCapabilities = (capAny: any) => {
                                 >
                                   <option value="" disabled className="text-gray-500">Add paper size...</option>
                                   {allPaperSizes.filter(
-                                    size => !editForm.capabilities.paperSizes.includes(size)
-                                  ).map(size => (
-                                    <option key={size} value={size} className="bg-white text-gray-700 py-1">{size}</option>
+                                    (size: string) => !editForm.capabilities.paperSizes.includes(size)
+                                  ).map((size: string) => (
+                                    <option key={size} value={size} className="bg-white text-gray-700 py-1">{displayPaperSize(size)}</option>
                                   ))}
                                 </select>
                                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
@@ -760,8 +854,8 @@ const normalizeCapabilities = (capAny: any) => {
                           </div>
                             <div className="flex flex-wrap gap-2 mt-2">
                             {(editForm.capabilities.paperSizes || []).map((size, i) => (
-                          <span key={size} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                                {size}
+                          <span key={size} className={`inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium ${isEditing ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
+                                {displayPaperSize(size)}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -774,7 +868,8 @@ const normalizeCapabilities = (capAny: any) => {
                                   });
                                   setChangedFields(prev => new Set(Array.from(prev).concat(['paperSizes'])));
                                   }}
-                                  className="ml-1.5 h-4 w-4 inline-flex items-center justify-center text-blue-400 hover:text-blue-600"
+                                  className={`ml-1.5 h-4 w-4 inline-flex items-center justify-center ${isEditing ? 'text-blue-400 hover:text-blue-600' : 'text-gray-400'}`}
+                                  disabled={!isEditing}
                                 >
                                   <X className="h-3 w-3" />
                                 </button>
@@ -793,7 +888,7 @@ const normalizeCapabilities = (capAny: any) => {
                           <p className="text-sm text-green-600 mb-6">System automatically detected settings</p>
                         </div>
                         <div className="flex flex-col items-end">
-                          <div className="flex items-center space-x-3 mb-2">
+                          <div className="flex items-center space-x-2 mb-2">
                             <span className={`text-sm font-medium ${selectedPrinter?.manualStatus === 'pending_off' ? 'text-orange-700' : (selectedPrinter?.isEnabled ? 'text-green-700' : 'text-red-700')}`}>
                               {selectedPrinter?.manualStatus === 'pending_off' ? 'Pending Off' : (selectedPrinter?.isEnabled ? 'Printer Enabled' : 'Printer Disabled')}
                             </span>
@@ -874,12 +969,12 @@ const normalizeCapabilities = (capAny: any) => {
                         <div>
                           <label className="block text-sm font-medium text-green-700 mb-1.5">Paper Sizes</label>
                           <div className="px-4 py-3 bg-white rounded-lg border border-green-200 shadow-sm">
-                            <p className="text-green-800 font-medium">{modalPaperSizes.join(', ')}</p>
+                            <p className="text-green-800 font-medium">{modalPaperSizes.map(displayPaperSize).join(', ')}</p>
                           </div>
                           <div className="flex flex-wrap gap-2 mt-2">
                             {(modalPaperSizes || []).map((size: string) => (
                               <span key={size} className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-green-50 text-green-700 border border-green-100">
-                                {size}
+                                {displayPaperSize(size)}
                               </span>
                             ))}
                           </div>
@@ -897,34 +992,7 @@ const normalizeCapabilities = (capAny: any) => {
                       <Save className="h-5 w-5" />
                       <span>Save Override</span>
                     </button>
-                    {selectedPrinter && (
-                      <button
-                        onClick={async () => {
-                          try {
-                            if (!shopId) return;
-                            const pid = encodeURIComponent(selectedPrinter.printerid || selectedPrinter.printerId);
-                            await axios.post(`${API_BASE}/api/shops/${encodeURIComponent(shopId)}/printers/${pid}/sync`);
-                            const response = await axios.get(`${API_BASE}/api/shops/${encodeURIComponent(shopId)}/printers`);
-                            const body: any = response.data || [];
-                            const arr = Array.isArray(body) ? body : (Array.isArray(body.printers) ? body.printers : []);
-                            const normalized = arr.map((p: any) => ({
-                              ...p,
-                              printerid: p.printerid || p.printerId || null,
-                              manualStatus: p.manualStatus || p.manual_status || 'on',
-                              status: p.status || p.agentDetected?.status || 'offline',
-                              isEnabled: (p.manualStatus || p.manual_status || 'on') === 'on'
-                            }));
-                            setPrinters(normalized);
-                          } catch (e) {
-                            console.error('Forced sync failed', e);
-                          }
-                        }}
-                        className="flex items-center space-x-2 bg-white text-gray-700 px-5 py-2.5 rounded-xl font-medium border border-gray-200 hover:bg-gray-50 transition-all duration-200"
-                      >
-                        <RefreshCw className="h-5 w-5" />
-                        <span>Force Sync</span>
-                      </button>
-                    )}
+                    {/* Force Sync button commented out per request */}
                   </div>
                   </div>
                 </motion.div>

@@ -80,6 +80,9 @@ function extractPaperSizes(ap) {
  * - If shopIdFilter provided, sync only that shop; else sync all
  * - Returns summary per shop and totals
  */
+let getIOSafe = null;
+try { getIOSafe = require('../socket').getIO; } catch {}
+
 async function syncPrinters(shopIdFilter) {
   const summary = { totals: { inserted: 0, updated: 0, skipped: 0 }, perShop: [] };
 
@@ -204,9 +207,16 @@ async function syncPrinters(shopIdFilter) {
       shop.printers = Array.from(unique.values());
     }
 
-  await shop.save();
-  // Socket removed: frontend uses polling
-  console.log(`[PRINTER-SYNC] shop ${shop.shop_id} — inserted: ${inserted}, updated: ${updated}, skipped: ${skipped}`);
+    await shop.save();
+    // Emit printers:update so subscribed clients refresh immediately (fallback: polling remains)
+    try {
+      if (getIOSafe && shop && shop.shop_id) {
+        getIOSafe().to(`shop:${shop.shop_id}`).emit('printers:update');
+      }
+    } catch (e) {
+      // ignore socket errors
+    }
+    console.log(`[PRINTER-SYNC] shop ${shop.shop_id} — inserted: ${inserted}, updated: ${updated}, skipped: ${skipped}`);
   summary.perShop.push({ shopId: shop.shop_id, inserted, updated, skipped });
     summary.totals.inserted += inserted;
     summary.totals.updated += updated;
@@ -230,4 +240,122 @@ async function scheduledSync(shopIdFilter) {
   }
 }
 
-module.exports = { syncPrinters, scheduledSync };
+// Presence watchdog: mark printers offline when heartbeats are stale
+// This version updates only the changed printer elements using arrayFilters when possible
+// and emits a payload with the changed printers so frontends can refresh incrementally.
+async function presenceWatchdog({ staleAfterMs = 60 * 1000 } = {}) {
+  try {
+    const now = Date.now();
+    const shops = await NewShop.find({}, { shop_id: 1, printers: 1 }).lean();
+    for (const shop of shops) {
+      if (!shop || !Array.isArray(shop.printers) || !shop.shop_id) continue;
+      const changedCandidates = [];
+      for (const p of shop.printers) {
+        try {
+          const last = p && p.lastUpdate ? new Date(p.lastUpdate) : null;
+          const lastMs = last && !isNaN(last.getTime()) ? last.getTime() : 0;
+          const shouldBeOnline = (now - lastMs) <= staleAfterMs;
+          const desiredStatus = shouldBeOnline ? 'online' : 'offline';
+          const currentStatus = (p.status || 'offline');
+          if (currentStatus !== desiredStatus) {
+            changedCandidates.push({ printerid: p.printerid || null, printerId: p.printerId || null, desiredStatus, previousStatus: currentStatus });
+          }
+        } catch (e) {
+          // swallow per-printer parse errors and continue
+        }
+      }
+
+      if (!changedCandidates.length) continue;
+
+      const results = [];
+      // Try to update each changed printer using atomic arrayFilters where possible.
+      for (const ch of changedCandidates) {
+        let updated = false;
+        // Prefer matching on canonical `printerid` when available
+        try {
+          if (ch.printerid) {
+            const setOps = { ['printers.$[p].status']: ch.desiredStatus, ['printers.$[p].agentDetected.status']: ch.desiredStatus };
+            const res = await NewShop.updateOne(
+              { shop_id: shop.shop_id },
+              { $set: setOps },
+              { arrayFilters: [{ 'p.printerid': ch.printerid }] }
+            ).catch(() => null);
+            if (res && (res.modifiedCount > 0 || res.nModified > 0 || res.ok)) {
+              // Note: some mongoose/mongodb versions return different fields; treat ok as non-fatal.
+              updated = true;
+            }
+          }
+        } catch (e) {
+          // fall through to next attempt
+        }
+
+        // If not updated, try matching legacy `printerId` field
+        if (!updated && ch.printerId) {
+          try {
+            const setOps = { ['printers.$[p].status']: ch.desiredStatus, ['printers.$[p].agentDetected.status']: ch.desiredStatus };
+            const res2 = await NewShop.updateOne(
+              { shop_id: shop.shop_id },
+              { $set: setOps },
+              { arrayFilters: [{ 'p.printerId': ch.printerId }] }
+            ).catch(() => null);
+            if (res2 && (res2.modifiedCount > 0 || res2.nModified > 0 || res2.ok)) updated = true;
+          } catch (e) {}
+        }
+
+        // Fallback: if atomic updates didn't apply (maybe unexpected shape), rewrite the document safely
+        if (!updated) {
+          try {
+            const shopDoc = await NewShop.findOne({ shop_id: shop.shop_id });
+            if (shopDoc && Array.isArray(shopDoc.printers)) {
+              let localChanged = false;
+              shopDoc.printers = shopDoc.printers.map(pp => {
+                const key = pp.printerid || pp.printerId || null;
+                if (key && (key === ch.printerid || key === ch.printerId)) {
+                  if ((pp.status || 'offline') !== ch.desiredStatus) {
+                    pp.status = ch.desiredStatus;
+                    localChanged = true;
+                  }
+                  try {
+                    if (!pp.agentDetected) pp.agentDetected = {};
+                    if ((pp.agentDetected.status || 'offline') !== ch.desiredStatus) {
+                      pp.agentDetected.status = ch.desiredStatus;
+                      localChanged = true;
+                    }
+                  } catch (e) {}
+                }
+                return pp;
+              });
+              if (localChanged) {
+                await shopDoc.save();
+                updated = true;
+              }
+            }
+          } catch (e) {
+            // ignore fallback errors for this printer
+          }
+        }
+
+        results.push({ printer: ch.printerid || ch.printerId || null, desiredStatus: ch.desiredStatus, updated });
+      }
+
+      // Diagnostic log: print exact changed printers for debugging
+      try {
+        console.log(`[PRESENCE-WATCHDOG] shop ${shop.shop_id} changed:`, JSON.stringify(results, null, 2));
+      } catch (e) {
+        // ignore logging errors
+      }
+      // Emit changed printers payload for clients to act upon
+      try {
+        if (getIOSafe) {
+          try { getIOSafe().to(`shop:${shop.shop_id}`).emit('printers:update', { changed: results }); } catch (e) {}
+        }
+      } catch (e) {}
+
+      console.log(`[PRESENCE-WATCHDOG] shop ${shop.shop_id} — updated ${results.filter(r => r.updated).length}/${results.length} printers`);
+    }
+  } catch (err) {
+    console.error('[PRESENCE-WATCHDOG] Error scanning shops:', err && err.message ? err.message : err);
+  }
+}
+
+module.exports = { syncPrinters, scheduledSync, presenceWatchdog };

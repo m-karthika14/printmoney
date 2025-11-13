@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { scheduledSync } = require('../utils/printerSync');
 const FinalJob = require('../models/FinalJob');
+let getIOSafe = null;
+try { getIOSafe = require('../socket').getIO; } catch {}
 // Helper: resolve shop by shop_id OR _id (shared helper used across routes)
 async function resolveShopByAny(idOrCode) {
 	if (!idOrCode) return null;
@@ -491,6 +493,7 @@ router.patch('/:id/printers', async (req, res) => {
 			console.log('Shop not found for id:', req.params.id);
 			return res.status(404).json({ message: 'Shop not found' });
 		}
+		try { if (getIOSafe && shop && shop.shop_id) getIOSafe().to(`shop:${shop.shop_id}`).emit('printers:update'); } catch (e) {}
 		res.json(shop.printers);
 	} catch (error) {
 		console.log('Error in PATCH /:id/printers:', error);
@@ -596,6 +599,7 @@ router.patch('/:id/printer/:printerId', async (req, res) => {
 			{ new: true, runValidators: true }
 		).lean();
 		const out = (updated.printers || [])[idx];
+		try { if (getIOSafe && updated && (updated.shop_id || updated.shopId)) getIOSafe().to(`shop:${updated.shop_id || updated.shopId}`).emit('printers:update'); } catch (e) {}
 		return res.json({ success: true, printer: out });
 	} catch (error) {
 		return res.status(400).json({ message: error.message });
@@ -774,6 +778,7 @@ router.patch('/:shopId/printers/:printerId/manualStatus', async (req, res) => {
 		setObj[`printers.${idx}.manualStatus`] = nextStatus;
 		const updatedShop = await NewShop.findByIdAndUpdate(shop._id, { $set: setObj }, { new: true }).lean();
 		const outPrinter = (updatedShop.printers || [])[idx];
+		try { if (getIOSafe && updatedShop && (updatedShop.shop_id || updatedShop.shopId)) getIOSafe().to(`shop:${updatedShop.shop_id || updatedShop.shopId}`).emit('printers:update'); } catch (e) {}
 		return res.json({ success: true, printer: outPrinter });
 	} catch (err) {
 		return res.status(500).json({ message: err.message });

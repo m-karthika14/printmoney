@@ -10,8 +10,9 @@ const PRESERVE_IF_FINAL_EXISTS = new Set([
   'autoPrintMode',
   'manualTriggered',
   'printer_config',
-  'totalpages',
-  'totalpagesprinted',
+  // legacy fields removed: use snake_case total_pages / total_printed_pages only
+  'total_pages',
+  'total_printed_pages',
   'printerid'
 ]);
 
@@ -32,6 +33,33 @@ function buildFinalFromJob(jobDoc, existingFinal) {
         rest[k] = existingFinal[k];
       }
     }
+  }
+  // Normalize page count fields: map legacy camelCase -> snake_case when present on Job,
+  // but do NOT write legacy camelCase fields into FinalJob (we keep only snake_case going forward).
+  if (typeof rest.total_pages === 'undefined' && typeof rest.totalpages !== 'undefined') {
+    rest.total_pages = rest.totalpages;
+  }
+  if (typeof rest.total_printed_pages === 'undefined' && typeof rest.totalpagesprinted !== 'undefined') {
+    rest.total_printed_pages = rest.totalpagesprinted;
+  }
+  // Remove legacy camelCase keys so FinalJob won't receive them
+  delete rest.totalpages;
+  delete rest.totalpagesprinted;
+  // If watermark contains per-document settings, expose them on both common field names
+  // used across the codebase so FinalJob consumers can read whichever name they expect.
+  try {
+    if (rest.watermark && Array.isArray(rest.watermark.perDocument) && (!rest.perDocOptions || rest.perDocOptions.length === 0)) {
+      rest.perDocOptions = rest.watermark.perDocument;
+    }
+    if (rest.watermark && Array.isArray(rest.watermark.perDocument) && (!rest.perDocumentWatermarks || rest.perDocumentWatermarks.length === 0)) {
+      rest.perDocumentWatermarks = rest.watermark.perDocument;
+    }
+    // Also, if Job used top-level perDocument/perDocumentWatermarks/perDocOptions fields, prefer them
+    if (typeof rest.perDocument !== 'undefined' && (!rest.perDocOptions || rest.perDocOptions.length === 0)) {
+      rest.perDocOptions = rest.perDocument;
+    }
+  } catch (e) {
+    // be resilient to malformed watermark shapes
   }
   return { ...rest };
 }

@@ -105,6 +105,14 @@ router.patch('/:shopId/printers/:printerid', async (req, res) => {
     const capExisting = (existing.manualOverride && Array.isArray(existing.manualOverride.capabilities) && existing.manualOverride.capabilities[0]) || {};
     const capIncoming = (incoming.capabilities && Array.isArray(incoming.capabilities) && incoming.capabilities[0]) || incoming.capabilities || {};
     const capMerged = Object.assign({}, capExisting, capIncoming);
+    // Normalize paperSizes to avoid case mismatches: trim, toLowerCase, and dedupe
+    if (Array.isArray(capMerged.paperSizes)) {
+      const cleaned = capMerged.paperSizes
+        .map(s => String(s || '').trim())
+        .filter(s => s.length > 0)
+        .map(s => s.toLowerCase());
+      capMerged.paperSizes = Array.from(new Set(cleaned));
+    }
     if (Object.keys(capMerged).length) merged.capabilities = [capMerged];
 
     // Prepare $set object for updating only that printer's manualOverride
@@ -122,11 +130,21 @@ router.patch('/:shopId/printers/:printerid', async (req, res) => {
 router.post('/:shopId/printers/:printerid/sync', async (req, res) => {
   try {
     // Simulate agent data or integrate with actual agent service
-    const latestData = req.body.latestData || {
+    const latestDataRaw = req.body.latestData || {
       name: 'HP LaserJet Professional M1136 MFP',
       status: 'online',
       capabilities: [{ type: 'Color', duplex: true, paperSizes: ['A4','Letter'] }]
     };
+    // Normalize agent-provided paperSizes as well (trim + lower + dedupe)
+    const latestData = JSON.parse(JSON.stringify(latestDataRaw));
+    if (Array.isArray(latestData.capabilities)) {
+      for (const cap of latestData.capabilities) {
+        if (Array.isArray(cap.paperSizes)) {
+          const cleaned = cap.paperSizes.map(s => String(s || '').trim()).filter(s => s.length > 0).map(s => s.toLowerCase());
+          cap.paperSizes = Array.from(new Set(cleaned));
+        }
+      }
+    }
     const shop = await resolveShopByAny(req.params.shopId);
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
     const idx = (shop.printers || []).findIndex(p => (p.printerid || p.printerId) === req.params.printerid);

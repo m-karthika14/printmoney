@@ -55,8 +55,18 @@ router.post('/assign', async (req, res) => {
   // Ensure critical fields from Job are present even if schema evolves
   if (typeof sourceDoc.payment_status !== 'undefined') finalBase.payment_status = sourceDoc.payment_status;
   if (typeof sourceDoc.payment_info !== 'undefined') finalBase.payment_info = sourceDoc.payment_info;
-  if (typeof sourceDoc.watermark !== 'undefined') finalBase.watermark = sourceDoc.watermark;
-  if (typeof sourceDoc.perDocOptions !== 'undefined') finalBase.perDocOptions = sourceDoc.perDocOptions;
+    if (typeof sourceDoc.watermark !== 'undefined') finalBase.watermark = sourceDoc.watermark;
+    // Ensure per-document watermark arrays are copied into both common field names
+    if (sourceDoc.watermark && Array.isArray(sourceDoc.watermark.perDocument)) {
+      finalBase.perDocumentWatermarks = sourceDoc.watermark.perDocument;
+      finalBase.perDocOptions = sourceDoc.watermark.perDocument;
+    }
+    if (typeof sourceDoc.perDocument !== 'undefined') {
+      finalBase.perDocumentWatermarks = sourceDoc.perDocument;
+      finalBase.perDocOptions = sourceDoc.perDocument;
+    }
+    if (typeof sourceDoc.perDocumentWatermarks !== 'undefined') finalBase.perDocumentWatermarks = sourceDoc.perDocumentWatermarks;
+    if (typeof sourceDoc.perDocOptions !== 'undefined') finalBase.perDocOptions = sourceDoc.perDocOptions;
     // Merge allocation-specific fields / overrides
     Object.assign(finalBase, {
       shop_id,
@@ -291,6 +301,16 @@ router.post('/resync/:job_number', async (req, res) => {
     if (typeof job.payment_status !== 'undefined') payload.payment_status = job.payment_status;
     if (typeof job.payment_info !== 'undefined') payload.payment_info = job.payment_info;
     if (typeof job.watermark !== 'undefined') payload.watermark = job.watermark;
+    // copy per-document watermark arrays into both field names
+    if (job.watermark && Array.isArray(job.watermark.perDocument)) {
+      payload.perDocumentWatermarks = job.watermark.perDocument;
+      payload.perDocOptions = job.watermark.perDocument;
+    }
+    if (typeof job.perDocument !== 'undefined') {
+      payload.perDocumentWatermarks = job.perDocument;
+      payload.perDocOptions = job.perDocument;
+    }
+    if (typeof job.perDocumentWatermarks !== 'undefined') payload.perDocumentWatermarks = job.perDocumentWatermarks;
     if (typeof job.perDocOptions !== 'undefined') payload.perDocOptions = job.perDocOptions;
     const updated = await FinalJob.findOneAndUpdate(
       { job_number },
@@ -323,7 +343,15 @@ router.post('/resync-missing', async (req, res) => {
       if (allow.has('payment_status') && typeof j.payment_status !== 'undefined' && (override || typeof f.payment_status === 'undefined')) payload.payment_status = j.payment_status;
       if (allow.has('payment_info') && typeof j.payment_info !== 'undefined' && (override || typeof f.payment_info === 'undefined')) payload.payment_info = j.payment_info;
       if (allow.has('watermark') && typeof j.watermark !== 'undefined' && (override || typeof f.watermark === 'undefined')) payload.watermark = j.watermark;
-      if (allow.has('perDocOptions') && typeof j.perDocOptions !== 'undefined' && (override || typeof f.perDocOptions === 'undefined')) payload.perDocOptions = j.perDocOptions;
+      // copy per-document watermark arrays into both field names when present on Job
+      if (allow.has('perDocOptions')) {
+        if (j.watermark && Array.isArray(j.watermark.perDocument) && (override || typeof f.perDocOptions === 'undefined')) payload.perDocOptions = j.watermark.perDocument;
+        if (j.watermark && Array.isArray(j.watermark.perDocument) && (override || typeof f.perDocumentWatermarks === 'undefined')) payload.perDocumentWatermarks = j.watermark.perDocument;
+        if (typeof j.perDocument !== 'undefined' && (override || typeof f.perDocOptions === 'undefined')) payload.perDocOptions = j.perDocument;
+        if (typeof j.perDocument !== 'undefined' && (override || typeof f.perDocumentWatermarks === 'undefined')) payload.perDocumentWatermarks = j.perDocument;
+        if (typeof j.perDocOptions !== 'undefined' && (override || typeof f.perDocOptions === 'undefined')) payload.perDocOptions = j.perDocOptions;
+        if (typeof j.perDocumentWatermarks !== 'undefined' && (override || typeof f.perDocumentWatermarks === 'undefined')) payload.perDocumentWatermarks = j.perDocumentWatermarks;
+      }
       if (Object.keys(payload).length === 0) continue;
       await FinalJob.updateOne({ job_number: f.job_number }, { $set: payload }, { strict: false });
       updated++;
