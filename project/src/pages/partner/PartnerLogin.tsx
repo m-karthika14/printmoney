@@ -64,7 +64,7 @@ const PartnerLogin = () => {
       } catch (e) {
         console.log('Set shop ids (could not read localStorage)');
       }
-      navigate('/dashboard');
+  navigate('/job-queue');
     } catch (err) {
       setLoginError('Login failed. Please try again.');
     } finally {

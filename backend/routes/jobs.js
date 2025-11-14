@@ -37,6 +37,12 @@ router.get('/queue/:shop_id', async (req, res) => {
         parseAmount(f.totalAmount) ??
         parseAmount(j.total_amount) ??
         parseAmount(j.totalAmount);
+      const pages =
+        (typeof f.total_pages === 'number' ? f.total_pages : (typeof f.totalPages === 'number' ? f.totalPages : undefined)) ??
+        (typeof j.total_pages === 'number' ? j.total_pages : (typeof j.totalPages === 'number' ? j.totalPages : undefined));
+      const printed =
+        (typeof f.total_printed_pages === 'number' ? f.total_printed_pages : (typeof f.totalPrintedPages === 'number' ? f.totalPrintedPages : undefined)) ??
+        (typeof j.total_printed_pages === 'number' ? j.total_printed_pages : (typeof j.totalPrintedPages === 'number' ? j.totalPrintedPages : undefined));
       return {
         finaljobId: String(f._id),
         job_number: f.job_number,
@@ -52,6 +58,9 @@ router.get('/queue/:shop_id', async (req, res) => {
         document_urls: j.document_urls || f.document_urls || [],
         print_options: f.print_options || {},
         total_amount: amt,
+  // Default numeric fields to 0 when not present so frontend can render 0 instead of "—"
+  total_pages: typeof pages === 'number' ? pages : 0,
+  total_printed_pages: typeof printed === 'number' ? printed : 0,
       };
     });
 

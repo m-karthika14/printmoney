@@ -11,11 +11,13 @@ export type QueueJob = {
   job_status: 'pending' | 'printing' | 'completed';
   autoPrintMode: boolean;
   manualTrigger: boolean;
-  customer: string;
+  customer: any;
   payment_status: string;
   createdAt?: string;
   print_options?: { copies?: number; printType?: string; binding?: string | string[] };
   total_amount?: number;
+  total_pages?: number;
+  total_printed_pages?: number;
 };
 
 const JobQueue: React.FC = () => {
@@ -48,6 +50,19 @@ const JobQueue: React.FC = () => {
     if (c.phone) return String(c.phone);
     if (c._id) return String(c._id);
     return JSON.stringify(c);
+  };
+
+  const displayPhone = (c: any) => {
+    if (!c) return '—';
+    if (typeof c === 'string') return '—';
+    const phone = c.phone || c.mobile || c.phoneNumber || c.contact || '';
+    if (!phone) return '—';
+    const s = String(phone).trim();
+    if (s.startsWith('+')) return s;
+    // if looks like 10 digit Indian number, prefix +91
+    const digits = s.replace(/\D/g, '');
+    if (digits.length === 10) return `+91 ${digits.slice(0,5)} ${digits.slice(5)}`;
+    return s;
   };
 
   useEffect(() => {
@@ -286,11 +301,23 @@ const JobQueue: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center space-x-2">
-                          <User className="h-4 w-4 text-gray-400" />
-                          <div>
-                            <p className="font-medium text-gray-900">{displayCustomer(job.customer)}</p>
-                            <div className="flex items-center space-x-1 mt-1"><Phone className="h-3 w-3 text-gray-400" /><span className="text-xs text-gray-600">+91 XXXXX XXXXX</span></div>
+                        <div className="grid grid-cols-[auto,1fr] grid-rows-2 gap-x-3 gap-y-1 items-center">
+                          {/* Left column: icons aligned with each row */}
+                          <div className="row-start-1 row-end-2 flex items-center">
+                            <User className="h-6 w-6 text-gray-400" />
+                          </div>
+                          <div className="row-start-2 row-end-3 flex items-center">
+                            <Phone className="h-5 w-5 text-gray-400" />
+                          </div>
+
+                          {/* Right column: name and phone text */}
+                          <div className="row-start-1 row-end-2 min-w-0">
+                            <p className="font-medium text-gray-900 text-sm">{displayCustomer(job.customer)}</p>
+                          </div>
+                          <div className="row-start-2 row-end-3 min-w-0">
+                            <div className="text-sm text-gray-600">
+                              <span className="truncate">{displayPhone(job.customer)}</span>
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -305,7 +332,7 @@ const JobQueue: React.FC = () => {
                               Type: <span className="ml-1 font-semibold">{printType || '—'}</span>
                             </span>
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                              Pages: <span className="ml-1 font-semibold">—</span>
+                              Pages: <span className="ml-1 font-semibold">{typeof job.total_pages === 'number' ? job.total_pages : '—'}</span>
                             </span>
                           </div>
 
@@ -326,8 +353,8 @@ const JobQueue: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap align-top">
-                        <div className="text-sm">
-                          <p className="text-gray-900 font-medium">— / — pages</p>
+                          <div className="text-sm">
+                          <p className="text-gray-900 font-medium">{(typeof job.total_printed_pages === 'number' ? job.total_printed_pages : '—')} / {(typeof job.total_pages === 'number' ? job.total_pages : '—')} pages</p>
                           <p className="text-xs text-gray-500 mt-1">Status: <span className={`font-medium capitalize ${job.job_status === 'completed' ? 'text-green-600' : job.job_status === 'printing' ? 'text-orange-600' : 'text-gray-600'}`}>{job.job_status}</span></p>
                           {job.job_status === 'printing' && (<div className="mt-2 w-full bg-gray-200 rounded-full h-2"><div className="bg-lime-500 h-2 rounded-full transition-all duration-300" style={{ width: `30%` }} /></div>)}
                         </div>
