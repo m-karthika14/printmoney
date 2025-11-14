@@ -14,12 +14,16 @@ Realtime
   - dashboard.updated: partial snapshot updates (isOpen)
   - job.updated: finaljobs document updated
 
-Cron and TTL
+Cron and retention
 - Daily snapshot at 00:05 local time records previous day completed counts in collection dailyshopstats
-- TTL on finaljobs.createdAt expires documents after 24 hours (86400s)
+- FinalJob documents are retained permanently by default. A previous deployment created a TTL index that expired
+  `finaljobs.createdAt` after 24 hours; that index is no longer created by the server and existing TTL indexes
+  will be dropped on startup so history is preserved.
 
-Indexes
-- finaljobs: { shop_id: 1, job_status: 1, createdAt: 1 }, TTL on createdAt
+- Indexes
+- finaljobs: { shop_id: 1, job_status: 1, createdAt: 1 } (no TTL)
+- newshops: { shop_id: 1 }
+- dailyshopstats: { shop_id: 1, date: 1 } unique
 - newshops: { shop_id: 1 }
 - dailyshopstats: { shop_id: 1, date: 1 } unique
 

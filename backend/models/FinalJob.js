@@ -58,7 +58,11 @@ total_printed_pages: { type: Number, default: 0 },
   // How many automatic retry attempts have been made by the watchdog
   retryCount: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+  // Whether the customer has collected the printed output. Set by shopkeeper via UI.
+  collected: { type: Boolean, default: false },
+  // Timestamp when shopkeeper marked the job as collected
+  collectedAt: { type: Date }
 }, { strict: false });
 
 // Update updated_at on every save

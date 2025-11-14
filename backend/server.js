@@ -185,12 +185,35 @@ mongoose.connect(process.env.MONGO_URI, {
     console.warn('[Socket] Initialization failed:', e && e.message ? e.message : e);
   }
 
-  // Indices for performance (idempotent)
+    // Indices for performance (idempotent)
   try {
     const FinalJob = require('./models/FinalJob');
+    // keep a compound index for common queries; do NOT create a TTL index here
     FinalJob.collection.createIndex({ shop_id: 1, job_status: 1, createdAt: 1 }).catch(()=>{});
-    // TTL: 24 hours on createdAt
-    FinalJob.collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 }).catch(()=>{});
+    // NOTE: previously we created a TTL index on FinalJob.createdAt (expireAfterSeconds: 86400)
+    // which caused FinalJob documents to be removed after 24 hours. That behavior has been
+    // intentionally removed so FinalJob history is retained permanently. If an existing
+    // TTL index remains in the database (created by older deployments), drop it now.
+    try {
+      // Use promise-style calls to avoid top-level await inside the synchronous startup block.
+      FinalJob.collection.indexes()
+        .then(idxs => {
+          const drops = [];
+          for (const idx of idxs) {
+            if (typeof idx.expireAfterSeconds !== 'undefined') {
+              drops.push(
+                FinalJob.collection.dropIndex(idx.name)
+                  .then(() => console.log('[Index] Dropped TTL index on FinalJob:', idx.name))
+                  .catch(dropErr => console.warn('[Index] Failed to drop TTL index', idx.name, dropErr && dropErr.message ? dropErr.message : dropErr))
+              );
+            }
+          }
+          return Promise.all(drops);
+        })
+        .catch(e => console.warn('[Index] Failed to inspect/drop TTL index on FinalJob:', e && e.message ? e.message : e));
+    } catch (e) {
+      console.warn('[Index] Failed to inspect/drop TTL index on FinalJob (sync fallback):', e && e.message ? e.message : e);
+    }
   const NewShop = require('./models/NewShop');
   // Cleanup legacy/bad unique index on virtual field `shopId` if it exists
   NewShop.collection.indexes()

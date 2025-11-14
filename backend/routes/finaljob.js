@@ -420,3 +420,27 @@ router.patch('/:id/manual', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+// Mark a FinalJob as collected by the customer. This can be performed only once per job.
+// PATCH /api/finaljobs/:id/collect
+router.patch('/:id/collect', async (req, res) => {
+  try {
+    const id = req.params.id;
+    // Attempt an atomic update only if not already collected
+    const updated = await FinalJob.findOneAndUpdate(
+      { _id: id, collected: { $ne: true } },
+      { $set: { collected: true, collectedAt: new Date() } },
+      { new: true }
+    );
+    if (!updated) {
+      // Either not found or already collected
+      const exists = await FinalJob.findById(id).lean();
+      if (!exists) return res.status(404).json({ message: 'FinalJob not found' });
+      return res.status(409).json({ message: 'Job already marked as collected' });
+    }
+    // Return the updated document
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});

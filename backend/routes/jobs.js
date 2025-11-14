@@ -61,6 +61,9 @@ router.get('/queue/:shop_id', async (req, res) => {
   // Default numeric fields to 0 when not present so frontend can render 0 instead of "—"
   total_pages: typeof pages === 'number' ? pages : 0,
   total_printed_pages: typeof printed === 'number' ? printed : 0,
+        // collected flag and timestamp
+        collected: !!f.collected,
+        collectedAt: f.collectedAt || null,
       };
     });
 

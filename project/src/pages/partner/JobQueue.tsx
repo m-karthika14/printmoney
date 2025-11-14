@@ -18,6 +18,8 @@ export type QueueJob = {
   total_amount?: number;
   total_pages?: number;
   total_printed_pages?: number;
+  collected?: boolean;
+  collectedAt?: string;
 };
 
 const JobQueue: React.FC = () => {
@@ -28,68 +30,62 @@ const JobQueue: React.FC = () => {
   const [shopId, setShopId] = useState<string>('');
   const [isPolling] = useState<boolean>(true);
   const [triggering, setTriggering] = useState<Set<string>>(new Set());
+  const [collecting, setCollecting] = useState<Set<string>>(new Set());
   const [todayJobs, setTodayJobs] = useState<number>(0);
+  const [todayJobsDate, setTodayJobsDate] = useState<string | null>(null);
   // ...existing code...
 
   const printingCount = counts.printing;
   const completedCount = counts.completed;
+      // First try the dedicated dailystats endpoint which returns normalized entries
 
   const formatTime = (timeString: string) => new Date(timeString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
   const formatDate = (timeString: string) => new Date(timeString).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
-  const formatAmount = (val: unknown) => {
-    const n = typeof val === 'number' ? val : (typeof val === 'string' ? Number(val) : NaN);
-    if (!Number.isFinite(n)) return '₹—';
-    return `₹${n.toFixed(2)}`;
-  };
-  const displayCustomer = (c: any) => {
-    if (!c) return '—';
-    if (typeof c === 'string') return c;
-    // common shapes: { name, email, phone, _id }
-    if (c.name) return String(c.name);
-    if (c.email) return String(c.email);
-    if (c.phone) return String(c.phone);
-    if (c._id) return String(c._id);
-    return JSON.stringify(c);
-  };
+      try {
+        const resp = await apiFetch(`/api/shops/${encodeURIComponent(shopId)}/dailystats?limit=1`);
+        if (resp.ok) {
+          const body = await resp.json();
+          if (body && Array.isArray(body.data) && body.data.length > 0) {
+            const first = body.data[0];
+            const val = typeof first.totalJobsCompleted === 'number' ? first.totalJobsCompleted : (typeof first.completedCount === 'number' ? first.completedCount : 0);
+            setTodayJobs(val);
+            setTodayJobsDate(first.date || null);
+            console.log('[JobQueue] used dailystats endpoint', { date: first.date, value: val });
+            return;
+          }
+        }
+      } catch (errDs) {
+        console.warn('[JobQueue] dailystats endpoint failed', errDs);
+      }
 
-  const displayPhone = (c: any) => {
-    if (!c) return '—';
-    if (typeof c === 'string') return '—';
-    const phone = c.phone || c.mobile || c.phoneNumber || c.contact || '';
-    if (!phone) return '—';
-    const s = String(phone).trim();
-    if (s.startsWith('+')) return s;
-    // if looks like 10 digit Indian number, prefix +91
-    const digits = s.replace(/\D/g, '');
-    if (digits.length === 10) return `+91 ${digits.slice(0,5)} ${digits.slice(5)}`;
-    return s;
-  };
-
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const qsShop = url.searchParams.get('shop_id') || url.searchParams.get('shopId') || undefined;
-    const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId') || undefined;
-    const HEX24 = /^[a-fA-F0-9]{24}$/;
-    // If a 24-char hex was stored, remove it and don't use it
-    if (stored && HEX24.test(stored)) {
-      try { window.localStorage.removeItem('shopId'); } catch {}
-      try { window.localStorage.removeItem('shop_id'); } catch {}
-      try { window.localStorage.removeItem('shop_object_id'); } catch {}
-      console.warn('[JobQueue] removed legacy Mongo ObjectId from localStorage', stored);
-      setShopId('');
-      return;
-    }
-    const sid = (qsShop && !HEX24.test(qsShop)) ? qsShop : (stored && !HEX24.test(stored) ? stored : '');
-    // Persist only a valid canonical shopId
-    if (qsShop && !HEX24.test(qsShop)) {
-      try { window.localStorage.setItem('shop_id', qsShop); } catch {}
-    }
-    setShopId(sid);
-  }, []);
-
-  const fetchQueue = useCallback(async () => {
-    if (!shopId) return;
-    try {
+      // Fallback: fetch full shop object and try to read dailystats map
+      try {
+        const shop = await fetchShop(shopId);
+        const ds = shop?.dailystats || {};
+        const entry = ds[istKey] || ds[utcKey] || null;
+        let used = entry;
+        if (!used) {
+          const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          const yIst = yesterday.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+          const yUtc = new Date(yesterday).toISOString().split('T')[0];
+          used = ds[yIst] || ds[yUtc] || {};
+        }
+        const val = (used && typeof used.totalJobsCompleted === 'number') ? used.totalJobsCompleted : (used && typeof used.completedCount === 'number' ? used.completedCount : 0);
+        // Try to find which key matched
+        let usedDate: string | null = null;
+        for (const k of Object.keys(ds || {})) {
+          try {
+            const v = (ds as any)[k];
+            if (v && (v.totalJobsCompleted === used.totalJobsCompleted || v.completedCount === used.completedCount)) { usedDate = k; break; }
+          } catch {}
+        }
+        setTodayJobs(val);
+        setTodayJobsDate(usedDate || null);
+        console.log('[JobQueue] fallback shop dailystats', { istKey, utcKey, usedDate, value: val });
+        return;
+      } catch (shopErr) {
+        console.warn('[JobQueue] fetchShop fallback failed', shopErr);
+      }
   const resp = await apiFetch(`/api/jobs/queue/${shopId}`);
       if (!resp.ok) throw new Error('Failed to fetch queue');
       const data = await resp.json();
@@ -120,8 +116,59 @@ const JobQueue: React.FC = () => {
       const shop = await fetchShop(shopId);
       const istKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       const utcKey = new Date().toISOString().split('T')[0];
-      const ds = shop?.dailystats || {};
-      const today = (typeof ds[istKey]?.totalJobsCompleted === 'number') ? ds[istKey].totalJobsCompleted : (typeof ds[utcKey]?.totalJobsCompleted === 'number' ? ds[utcKey].totalJobsCompleted : 0);
+      // Normalize possible shapes: Map (when returned by Mongoose), plain object, or wrapper
+      let ds: any = {};
+      try {
+        if (!shop || !shop.dailystats) ds = {};
+        else if (Array.isArray(shop.dailystats)) {
+          // Some endpoints may return an array of entries
+          for (const e of shop.dailystats) { if (e && e.date) ds[e.date] = e; }
+        } else if (typeof shop.dailystats === 'object' && !(shop.dailystats instanceof Map)) {
+          ds = shop.dailystats;
+        } else if (shop.dailystats instanceof Map) {
+          // When Mongoose returns a Map it may appear as actual Map in some environments
+          ds = Object.fromEntries(shop.dailystats);
+        } else if (typeof shop.dailystats === 'string') {
+          // Guard: sometimes serialized JSON may come as string
+          try { ds = JSON.parse(shop.dailystats); } catch { ds = {}; }
+        } else {
+          // Fallback: attempt to coerce
+          ds = Object.assign({}, shop.dailystats);
+        }
+      } catch (normErr) {
+        console.warn('[JobQueue] failed to normalize dailystats', normErr, shop && shop.dailystats);
+        ds = shop?.dailystats || {};
+      }
+      // Prefer the IST calendar-day key if present, otherwise fallback to UTC key.
+      let entry = ds[istKey] || ds[utcKey] || null;
+      // If today's entry is missing, fall back to yesterday (helps when today's bucket hasn't been populated yet)
+      if (!entry) {
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const yIst = yesterday.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        const yUtc = new Date(yesterday).toISOString().split('T')[0];
+        entry = ds[yIst] || ds[yUtc] || {};
+      }
+      // Some older snapshots use `completedCount` instead of `totalJobsCompleted`.
+      const today = (typeof entry.totalJobsCompleted === 'number')
+        ? entry.totalJobsCompleted
+        : (typeof entry.completedCount === 'number' ? entry.completedCount : 0);
+      // Helpful debug (can remove later) if you see unexpected zeros
+      // Use console.log so it's visible in DevTools default filter
+      console.log('[JobQueue] dailystats lookup', { istKey, utcKey, usedEntry: entry });
+      // Record which date key we used (prefer IST key, otherwise UTC or yesterday fallback)
+      const usedDateKey = (ds && ds[istKey]) ? istKey : ((ds && ds[utcKey]) ? utcKey : null);
+      // If today's keys missing but entry came from yesterday's fallback, compute that key
+      let usedDate = usedDateKey;
+      if (!usedDate && entry) {
+        // try to find date in ds map that matches entry reference
+        for (const k of Object.keys(ds || {})) {
+          try {
+            const val = (ds as any)[k];
+            if (val === entry || (val && JSON.stringify(val) === JSON.stringify(entry))) { usedDate = k; break; }
+          } catch {}
+        }
+      }
+      setTodayJobsDate(usedDate || null);
       setTodayJobs(today);
     } catch (e) {
       console.error('[JobQueue] totals fetch failed; falling back to dashboard:', e);
@@ -241,6 +288,9 @@ const JobQueue: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Jobs Today</p>
                 <p className="text-2xl font-bold text-gray-900 mt-1">{todayJobs}</p>
+                {todayJobsDate && (
+                  <p className="text-xs text-gray-500 mt-1">Latest: {todayJobsDate}</p>
+                )}
               </div>
               <div className="px-3 py-1 rounded-full text-sm font-medium bg-lime-100 text-lime-800">Today</div>
             </div>
@@ -360,7 +410,8 @@ const JobQueue: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap align-top">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex flex-col items-start space-y-2">
+                          {/* Print button on top */}
                           <button
                             onClick={() => handleManualPrint(job.finaljobId)}
                             disabled={printDisabled}
@@ -369,8 +420,52 @@ const JobQueue: React.FC = () => {
                           >
                             Print
                           </button>
+
+                          {/* mode/trigger words below the Print button */}
+                          <div className="text-xs text-gray-400">
+                            {autoPrintMode ? 'Auto mode' : 'Manual mode'}{job.manualTrigger ? ' • Manual triggered' : ''}
+                          </div>
+
+                          {/* Collect button (only for completed jobs) below the words */}
+                          {job.job_status === 'completed' && (
+                            <div className="flex flex-col items-start">
+                              <button
+                                onClick={async () => {
+                                  if (job.collected) return;
+                                  if (collecting.has(job.finaljobId)) return;
+                                  try {
+                                    setCollecting(prev => new Set(prev).add(job.finaljobId));
+                                    const resp = await apiFetch(`/api/finaljobs/${job.finaljobId}/collect`, { method: 'PATCH' });
+                                    if (!resp.ok) {
+                                      try { const e = await resp.json(); console.error('Collect failed', e); } catch {};
+                                      throw new Error('Collect failed');
+                                    }
+                                    fetchQueue();
+                                  } catch (e) {
+                                    console.error(e);
+                                  } finally {
+                                    setCollecting(prev => {
+                                      const next = new Set(prev);
+                                      next.delete(job.finaljobId);
+                                      return next;
+                                    });
+                                  }
+                                }}
+                                disabled={!!job.collected || collecting.has(job.finaljobId)}
+                                className={`px-3 py-1 rounded-md text-sm font-semibold transition focus:outline-none ${job.collected ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-lime-500 text-white hover:bg-lime-600'} ${collecting.has(job.finaljobId) ? 'opacity-60 cursor-wait' : ''}`}
+                                title={job.collected ? 'Already collected' : 'Mark as collected'}
+                              >
+                                {job.collected ? 'Collected' : 'Collect'}
+                              </button>
+
+                              {job.collected && job.collectedAt && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Collected: {formatDate(job.collectedAt)} {formatTime(job.collectedAt)}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div className="text-xs text-gray-400 mt-2">{autoPrintMode ? 'Auto mode' : 'Manual mode'}{job.manualTrigger ? ' • Manual triggered' : ''}</div>
                       </td>
                     </tr>
                   );
