@@ -35,58 +35,62 @@ const JobQueue: React.FC = () => {
   const [todayJobsDate, setTodayJobsDate] = useState<string | null>(null);
   // ...existing code...
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const qsShop = url.searchParams.get('shop_id') || url.searchParams.get('shopId') || undefined;
+    const stored = window.localStorage.getItem('shop_id') || window.localStorage.getItem('shopId') || undefined;
+    const HEX24 = /^[a-fA-F0-9]{24}$/;
+    // If a 24-char hex was stored, remove it and don't use it
+    if (stored && HEX24.test(stored)) {
+      try { window.localStorage.removeItem('shopId'); } catch {}
+      try { window.localStorage.removeItem('shop_id'); } catch {}
+      try { window.localStorage.removeItem('shop_object_id'); } catch {}
+      console.warn('[JobQueue] removed legacy Mongo ObjectId from localStorage', stored);
+      setShopId('');
+      return;
+    }
+    const sid = (qsShop && !HEX24.test(qsShop)) ? qsShop : (stored && !HEX24.test(stored) ? stored : '');
+    // Persist only a valid canonical shopId
+    if (qsShop && !HEX24.test(qsShop)) {
+      try { window.localStorage.setItem('shop_id', qsShop); } catch {}
+    }
+    setShopId(sid);
+  }, []);
+
   const printingCount = counts.printing;
   const completedCount = counts.completed;
-      // First try the dedicated dailystats endpoint which returns normalized entries
-
   const formatTime = (timeString: string) => new Date(timeString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
   const formatDate = (timeString: string) => new Date(timeString).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
-      try {
-        const resp = await apiFetch(`/api/shops/${encodeURIComponent(shopId)}/dailystats?limit=1`);
-        if (resp.ok) {
-          const body = await resp.json();
-          if (body && Array.isArray(body.data) && body.data.length > 0) {
-            const first = body.data[0];
-            const val = typeof first.totalJobsCompleted === 'number' ? first.totalJobsCompleted : (typeof first.completedCount === 'number' ? first.completedCount : 0);
-            setTodayJobs(val);
-            setTodayJobsDate(first.date || null);
-            console.log('[JobQueue] used dailystats endpoint', { date: first.date, value: val });
-            return;
-          }
-        }
-      } catch (errDs) {
-        console.warn('[JobQueue] dailystats endpoint failed', errDs);
-      }
+  const formatAmount = (val: unknown) => {
+    const n = typeof val === 'number' ? val : (typeof val === 'string' ? Number(val) : NaN);
+    if (!Number.isFinite(n)) return '₹—';
+    return `₹${n.toFixed(2)}`;
+  };
+  const displayCustomer = (c: any) => {
+    if (!c) return '—';
+    if (typeof c === 'string') return c;
+    if (c.name) return String(c.name);
+    if (c.email) return String(c.email);
+    if (c.phone) return String(c.phone);
+    if (c._id) return String(c._id);
+    return JSON.stringify(c);
+  };
+  const displayPhone = (c: any) => {
+    if (!c) return '—';
+    if (typeof c === 'string') return '—';
+    const phone = c.phone || c.mobile || c.phoneNumber || c.contact || '';
+    if (!phone) return '—';
+    const s = String(phone).trim();
+    if (s.startsWith('+')) return s;
+    const digits = s.replace(/\D/g, '');
+    if (digits.length === 10) return `+91 ${digits.slice(0,5)} ${digits.slice(5)}`;
+    return s;
+  };
 
-      // Fallback: fetch full shop object and try to read dailystats map
-      try {
-        const shop = await fetchShop(shopId);
-        const ds = shop?.dailystats || {};
-        const entry = ds[istKey] || ds[utcKey] || null;
-        let used = entry;
-        if (!used) {
-          const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-          const yIst = yesterday.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-          const yUtc = new Date(yesterday).toISOString().split('T')[0];
-          used = ds[yIst] || ds[yUtc] || {};
-        }
-        const val = (used && typeof used.totalJobsCompleted === 'number') ? used.totalJobsCompleted : (used && typeof used.completedCount === 'number' ? used.completedCount : 0);
-        // Try to find which key matched
-        let usedDate: string | null = null;
-        for (const k of Object.keys(ds || {})) {
-          try {
-            const v = (ds as any)[k];
-            if (v && (v.totalJobsCompleted === used.totalJobsCompleted || v.completedCount === used.completedCount)) { usedDate = k; break; }
-          } catch {}
-        }
-        setTodayJobs(val);
-        setTodayJobsDate(usedDate || null);
-        console.log('[JobQueue] fallback shop dailystats', { istKey, utcKey, usedDate, value: val });
-        return;
-      } catch (shopErr) {
-        console.warn('[JobQueue] fetchShop fallback failed', shopErr);
-      }
-  const resp = await apiFetch(`/api/jobs/queue/${shopId}`);
+  const fetchQueue = useCallback(async () => {
+    if (!shopId) return;
+    try {
+      const resp = await apiFetch(`/api/jobs/queue/${shopId}`);
       if (!resp.ok) throw new Error('Failed to fetch queue');
       const data = await resp.json();
       const list: QueueJob[] = Array.isArray(data.jobs) ? data.jobs : [];
