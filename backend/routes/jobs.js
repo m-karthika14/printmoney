@@ -79,8 +79,28 @@ router.get('/queue/:shop_id', async (req, res) => {
     autoMode = !!latest?.autoPrintMode;
   }
 
-    const order = { pending: 0, printing: 1, completed: 2 };
-    merged.sort((a, b) => (order[a.job_status] ?? 99) - (order[b.job_status] ?? 99));
+    // New ordering per UI request:
+    // 1) first-arrived pending jobs
+    // 2) printing jobs
+    // 3) completed (printed but not yet collected)
+    // 4) collected jobs (always at the end)
+    const groupOrder = (item) => {
+      if (item.collected) return 3;
+      if (item.job_status === 'pending') return 0;
+      if (item.job_status === 'printing') return 1;
+      if (item.job_status === 'completed') return 2;
+      return 99;
+    };
+
+    // Sort primarily by groupOrder, secondarily by arrival time (createdAt ascending)
+    merged.sort((a, b) => {
+      const ga = groupOrder(a);
+      const gb = groupOrder(b);
+      if (ga !== gb) return ga - gb;
+      const ta = new Date(a.createdAt || a.updatedAt || 0).getTime();
+      const tb = new Date(b.createdAt || b.updatedAt || 0).getTime();
+      return ta - tb;
+    });
 
     res.json({
       shop_id: shopId,

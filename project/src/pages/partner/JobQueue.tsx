@@ -212,7 +212,7 @@ const JobQueue: React.FC = () => {
   };
 
   const handleManualPrint = async (finaljobId: string) => {
-    // Block in auto mode or if already triggering (prevents double clicks before re-render)
+    // hBlock in auto mode or if already triggering (prevents double clicks before re-render)
     if (autoPrintMode || triggering.has(finaljobId)) return;
     try {
       // Optimistically dim + disable this job's Print button
